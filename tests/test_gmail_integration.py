@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import sys
-sys.path.append(str(Path(__file__).parent / "src"))
+sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from src.services.gmail_service import GmailService
 from src.models.email import AccountType

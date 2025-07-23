@@ -5,7 +5,7 @@ Test script to verify configuration loading.
 
 import sys
 from pathlib import Path
-sys.path.append(str(Path(__file__).parent / "src"))
+sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 try:
     from src.utils.config import get_settings
