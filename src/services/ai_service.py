@@ -18,7 +18,7 @@ class AIService:
         self.api_key = api_key
         self.model = model
         self.max_tokens = max_tokens
-        openai.api_key = api_key
+        self.client = openai.OpenAI(api_key=api_key)
 
     async def summarize_newsletter(self, email: Email, newsletter: Newsletter) -> Optional[NewsletterSummaryItem]:
         try:
@@ -233,7 +233,7 @@ Génère uniquement le code HTML complet, sans markdown:"""
             max_tokens = max_tokens or self.max_tokens
             
             response = await asyncio.to_thread(
-                openai.ChatCompletion.create,
+                self.client.chat.completions.create,
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "Tu es un assistant expert en résumé de newsletters qui génère des résumés concis et informatifs en français."},
@@ -286,10 +286,22 @@ JSON:"""
             if response:
                 try:
                     import json
-                    result = json.loads(response)
+                    # Log the raw response for debugging
+                    logger.debug(f"AI raw response for {email.id}: {response}")
+                    
+                    # Try to extract JSON from the response if it's wrapped in markdown
+                    response_clean = response.strip()
+                    if response_clean.startswith('```json'):
+                        response_clean = response_clean[7:]
+                    if response_clean.endswith('```'):
+                        response_clean = response_clean[:-3]
+                    response_clean = response_clean.strip()
+                    
+                    result = json.loads(response_clean)
                     return result
-                except json.JSONDecodeError:
-                    logger.warning(f"Failed to parse AI classification response for email {email.id}")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse AI classification response for email {email.id}: {e}")
+                    logger.debug(f"Raw response was: {response}")
             
             return {"is_newsletter": False, "confidence": 0.0, "type": "other", "reasons": []}
             

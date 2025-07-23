@@ -20,6 +20,7 @@ from ..utils.helpers import (
     parse_email_date, html_to_text, extract_text_from_html
 )
 from ..utils.logger import get_logger
+from ..utils.config import get_settings
 
 logger = get_logger(__name__)
 
@@ -36,6 +37,8 @@ class GmailService:
         self.account_type = account_type
         self.service = None
         self.credentials = None
+        self.settings = get_settings()
+        self.ai_service = None
 
     async def authenticate(self):
         try:
@@ -66,6 +69,17 @@ class GmailService:
             
             self.credentials = creds
             self.service = build('gmail', 'v1', credentials=creds)
+            
+            # Initialize AI service for newsletter detection
+            if self.settings.openai_api_key and self.settings.openai_api_key != 'your_openai_api_key':
+                from ..services.ai_service import AIService
+                self.ai_service = AIService(
+                    self.settings.openai_api_key,
+                    self.settings.openai_model,
+                    self.settings.openai_max_tokens
+                )
+                logger.info("AI service initialized for newsletter detection")
+            
             logger.info(f"Gmail service authenticated for {self.account_type.value}")
             
         except Exception as e:
@@ -102,13 +116,13 @@ class GmailService:
                 format='full'
             ).execute()
             
-            return self._parse_message(message)
+            return await self._parse_message(message)
             
         except HttpError as e:
             logger.error(f"Error getting message details for {message_id}: {e}")
             return None
 
-    def _parse_message(self, message: Dict[str, Any]) -> Email:
+    async def _parse_message(self, message: Dict[str, Any]) -> Email:
         payload = message['payload']
         headers = {h['name'].lower(): h['value'] for h in payload.get('headers', [])}
         
@@ -143,7 +157,7 @@ class GmailService:
         
         email_id = generate_email_id(message_id, self.account_type.value)
         
-        return Email(
+        email = Email(
             id=email_id,
             message_id=message_id,
             subject=subject,
@@ -161,6 +175,27 @@ class GmailService:
             headers=headers,
             raw_size=int(message.get('sizeEstimate', 0))
         )
+        
+        # Apply AI-powered newsletter detection
+        if self.ai_service:
+            try:
+                classification = await self.ai_service.classify_email_content(email)
+                email.is_newsletter = classification.get('is_newsletter', False)
+                logger.debug(f"AI classification for '{email.subject[:30]}...': {classification}")
+            except Exception as e:
+                logger.warning(f"AI classification failed for {email.id}, using fallback: {e}")
+                email.is_newsletter = self._fallback_newsletter_detection(email)
+        else:
+            email.is_newsletter = self._fallback_newsletter_detection(email)
+        
+        return email
+
+    def _fallback_newsletter_detection(self, email: Email) -> bool:
+        """
+        Détection de newsletters basique si l'IA n'est pas disponible.
+        """
+        # Utilise la méthode existante du modèle Email
+        return email.is_likely_newsletter()
 
     def _extract_content_from_parts(self, parts: List[Dict[str, Any]]) -> tuple:
         content_text = ""

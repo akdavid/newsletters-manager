@@ -1,4 +1,5 @@
-from pydantic import BaseSettings, Field
+from pydantic_settings import BaseSettings
+from pydantic import Field
 from typing import Optional, List
 import os
 
@@ -17,7 +18,7 @@ class Settings(BaseSettings):
     
     # OpenAI API Configuration
     openai_api_key: str = Field(..., env="OPENAI_API_KEY")
-    openai_model: str = Field("gpt-3.5-turbo", env="OPENAI_MODEL")
+    openai_model: str = Field("gpt-4o-mini", env="OPENAI_MODEL")
     openai_max_tokens: int = Field(1000, env="OPENAI_MAX_TOKENS")
     
     # Database Configuration
