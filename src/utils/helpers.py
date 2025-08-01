@@ -131,7 +131,11 @@ def generate_uuid() -> str:
 
 def parse_email_date(date_string: str) -> Optional[datetime]:
     try:
-        return parsedate_to_datetime(date_string)
+        parsed_date = parsedate_to_datetime(date_string)
+        # Ensure datetime is timezone-aware to avoid warnings
+        if parsed_date.tzinfo is None:
+            parsed_date = parsed_date.replace(tzinfo=timezone.utc)
+        return parsed_date
     except (ValueError, TypeError):
         return None
 

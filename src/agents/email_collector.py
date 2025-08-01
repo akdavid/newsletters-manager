@@ -1,6 +1,6 @@
 import asyncio
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .base_agent import BaseAgent, MessageType
 from ..services.gmail_service import GmailService
@@ -66,7 +66,7 @@ class EmailCollectorAgent(BaseAgent):
         
         self.logger.info(f"Starting email collection (max {max_emails} per account)")
         
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
         collected_emails = []
         errors = []
 
@@ -87,7 +87,7 @@ class EmailCollectorAgent(BaseAgent):
 
         await self._store_emails(collected_emails)
         
-        execution_time = (datetime.now() - start_time).total_seconds()
+        execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
         
         result = {
             "collected_count": len(collected_emails),
@@ -172,7 +172,7 @@ class EmailCollectorAgent(BaseAgent):
                             recipient=email.recipient,
                             content_text=email.content_text,
                             content_html=email.content_html,
-                            received_date=email.received_date,
+                            received_date=email.received_date if email.received_date.tzinfo else email.received_date.replace(tzinfo=timezone.utc),
                             account_source=email.account_source.value,
                             status=email.status.value,
                             is_newsletter=email.is_newsletter,
@@ -196,12 +196,16 @@ class EmailCollectorAgent(BaseAgent):
 
     async def mark_emails_as_read(self, email_ids: List[str]) -> Dict[str, bool]:
         results = {}
+        successful_marks = 0
+        
+        self.logger.info(f"Attempting to mark {len(email_ids)} emails as read")
         
         try:
             with db_manager.get_session() as session:
                 for email_id in email_ids:
                     email_model = session.query(EmailModel).filter_by(id=email_id).first()
                     if not email_model:
+                        self.logger.warning(f"Email {email_id} not found in database")
                         results[email_id] = False
                         continue
                     
@@ -213,18 +217,30 @@ class EmailCollectorAgent(BaseAgent):
                             success = await self.gmail_services[service_index].mark_message_as_read(
                                 email_model.message_id
                             )
+                        else:
+                            self.logger.error(f"Gmail service index {service_index} not available")
                     elif email_model.account_source == 'hotmail':
-                        success = await self.outlook_service.mark_message_as_read(
-                            email_model.message_id
-                        )
+                        if self.outlook_service:
+                            success = await self.outlook_service.mark_message_as_read(
+                                email_model.message_id
+                            )
+                        else:
+                            self.logger.error("Outlook service not configured")
+                    else:
+                        self.logger.error(f"Unknown account source: {email_model.account_source}")
                     
                     if success:
                         email_model.status = 'read'
-                        email_model.updated_at = datetime.now()
+                        email_model.updated_at = datetime.now(timezone.utc)
+                        successful_marks += 1
+                        self.logger.debug(f"Successfully marked email {email_id} as read")
+                    else:
+                        self.logger.warning(f"Failed to mark email {email_id} as read")
                     
                     results[email_id] = success
                 
                 session.commit()
+                self.logger.info(f"Successfully marked {successful_marks}/{len(email_ids)} emails as read")
                 
         except Exception as e:
             self.logger.error(f"Failed to mark emails as read: {e}")

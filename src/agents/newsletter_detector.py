@@ -1,6 +1,6 @@
 import asyncio
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from .base_agent import BaseAgent, MessageType
 from ..services.ai_service import AIService
@@ -46,7 +46,7 @@ class NewsletterDetectorAgent(BaseAgent):
     async def execute(self, emails: List[Email]) -> Dict[str, Any]:
         self.logger.info(f"Starting newsletter detection for {len(emails)} emails")
         
-        start_time = datetime.now()
+        start_time = datetime.now(timezone.utc)
         detected_newsletters = []
         processed_count = 0
         errors = []
@@ -66,7 +66,7 @@ class NewsletterDetectorAgent(BaseAgent):
                 errors.append(error_msg)
                 self.logger.error(error_msg)
 
-        execution_time = (datetime.now() - start_time).total_seconds()
+        execution_time = (datetime.now(timezone.utc) - start_time).total_seconds()
         
         result = {
             "processed_count": processed_count,
@@ -276,20 +276,29 @@ class NewsletterDetectorAgent(BaseAgent):
                         sender_domain=extract_domain(email.sender),
                         total_emails=1,
                         newsletter_emails=1,
-                        last_email_date=email.received_date,
+                        last_email_date=email.received_date if email.received_date.tzinfo else email.received_date.replace(tzinfo=timezone.utc),
                         average_confidence_score=newsletter.confidence_score
                     )
                     session.add(stats)
                 else:
                     stats.total_emails += 1
                     stats.newsletter_emails += 1
-                    stats.last_email_date = max(stats.last_email_date, email.received_date)
+                    # Ensure both datetimes are timezone-aware for comparison
+                    email_date = email.received_date
+                    if email_date.tzinfo is None:
+                        email_date = email_date.replace(tzinfo=timezone.utc)
+                    
+                    last_date = stats.last_email_date
+                    if last_date.tzinfo is None:
+                        last_date = last_date.replace(tzinfo=timezone.utc) 
+                    
+                    stats.last_email_date = max(last_date, email_date)
                     
                     old_avg = stats.average_confidence_score or 0.0
                     stats.average_confidence_score = (old_avg + newsletter.confidence_score) / 2
                 
                 stats.is_frequent_sender = stats.total_emails >= 3
-                stats.updated_at = datetime.now()
+                stats.updated_at = datetime.now(timezone.utc)
                 
                 session.commit()
                 

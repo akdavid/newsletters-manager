@@ -1,7 +1,10 @@
 from sqlalchemy import Column, String, Text, DateTime, Boolean, Float, Integer, JSON, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
+
+def utc_now():
+    return datetime.now(timezone.utc)
 
 Base = declarative_base()
 
@@ -27,8 +30,8 @@ class EmailModel(Base):
     attachments = Column(JSON, default=list)
     headers = Column(JSON, default=dict)
     raw_size = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     newsletter = relationship("NewsletterModel", back_populates="email", uselist=False)
 
@@ -45,8 +48,8 @@ class NewsletterModel(Base):
     sender_name = Column(String)
     extra_metadata = Column(JSON, default=dict)
     classification_notes = Column(Text)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     email = relationship("EmailModel", back_populates="newsletter")
 
@@ -68,8 +71,8 @@ class SummaryModel(Base):
     processing_duration = Column(Float)
     ai_model_used = Column(String)
     word_count = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class ProcessingLogModel(Base):
@@ -82,7 +85,7 @@ class ProcessingLogModel(Base):
     message = Column(Text)
     extra_metadata = Column(JSON, default=dict)
     execution_time = Column(Float)
-    timestamp = Column(DateTime, default=datetime.now)
+    timestamp = Column(DateTime, default=utc_now)
 
 
 class SenderStatsModel(Base):
@@ -97,5 +100,5 @@ class SenderStatsModel(Base):
     last_email_date = Column(DateTime)
     is_frequent_sender = Column(Boolean, default=False)
     average_confidence_score = Column(Float)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)

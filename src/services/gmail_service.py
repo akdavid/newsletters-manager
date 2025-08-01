@@ -2,7 +2,7 @@ import os
 import base64
 import pickle
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -127,7 +127,7 @@ class GmailService:
         message_id = headers.get('message-id', message['id'])
         thread_id = message.get('threadId')
         
-        received_date = parse_email_date(date_str) or datetime.now()
+        received_date = parse_email_date(date_str) or datetime.now(timezone.utc)
         sender_email = extract_email_address(sender)
         sender_name = extract_sender_name(sender)
         
@@ -226,17 +226,41 @@ class GmailService:
             if not self.service:
                 await self.authenticate()
             
+            # Check if message exists first
+            try:
+                self.service.users().messages().get(
+                    userId='me',
+                    id=message_id,
+                    format='minimal'
+                ).execute()
+            except HttpError as e:
+                if e.resp.status == 404:
+                    logger.warning(f"Message {message_id} not found, may have been deleted")
+                    return False
+                raise
+            
+            # Mark as read by removing UNREAD label
             self.service.users().messages().modify(
                 userId='me',
                 id=message_id,
                 body={'removeLabelIds': ['UNREAD']}
             ).execute()
             
-            logger.debug(f"Marked message {message_id} as read")
+            logger.debug(f"Successfully marked message {message_id} as read")
             return True
             
         except HttpError as e:
-            logger.error(f"Error marking message {message_id} as read: {e}")
+            if e.resp.status == 400:
+                logger.warning(f"Bad request when marking message {message_id} as read - may already be read: {e}")
+            elif e.resp.status == 403:
+                logger.error(f"Insufficient permissions to mark message {message_id} as read: {e}")
+            elif e.resp.status == 404:
+                logger.warning(f"Message {message_id} not found when marking as read: {e}")
+            else:
+                logger.error(f"HTTP error marking message {message_id} as read: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error marking message {message_id} as read: {e}")
             return False
 
     async def send_email(self, to: str, subject: str, body: str, is_html: bool = False) -> bool:

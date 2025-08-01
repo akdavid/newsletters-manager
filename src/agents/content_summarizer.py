@@ -1,6 +1,6 @@
 import asyncio
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -55,7 +55,7 @@ class ContentSummarizerAgent(BaseAgent):
 
             self.logger.info(f"Starting summarization for {len(newsletters)} newsletters")
             
-            start_time = datetime.now()
+            start_time = datetime.now(timezone.utc)
             
             emails_dict = await self._get_emails_for_newsletters(newsletters)
             
@@ -71,7 +71,7 @@ class ContentSummarizerAgent(BaseAgent):
                 raise SummaryGenerationException("No newsletter summaries generated")
 
             daily_summary = await self.ai_service.generate_daily_summary(newsletter_summaries)
-            daily_summary.processing_duration = (datetime.now() - start_time).total_seconds()
+            daily_summary.processing_duration = (datetime.now(timezone.utc) - start_time).total_seconds()
             
             await self._store_summary(daily_summary)
             
@@ -221,7 +221,7 @@ class ContentSummarizerAgent(BaseAgent):
             with db_manager.get_session() as session:
                 session.query(EmailModel)\
                     .filter(EmailModel.id.in_(email_ids))\
-                    .update({EmailModel.is_processed: True, EmailModel.updated_at: datetime.now()})
+                    .update({EmailModel.is_processed: True, EmailModel.updated_at: datetime.now(timezone.utc)})
                 
                 session.commit()
                 
@@ -267,7 +267,7 @@ class ContentSummarizerAgent(BaseAgent):
                 summary_model = session.query(SummaryModel).filter_by(id=summary_id).first()
                 if summary_model:
                     summary_model.status = status.value
-                    summary_model.updated_at = datetime.now()
+                    summary_model.updated_at = datetime.now(timezone.utc)
                     if error_message:
                         summary_model.error_message = error_message
                     session.commit()
