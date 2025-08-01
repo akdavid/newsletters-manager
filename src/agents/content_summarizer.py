@@ -10,7 +10,7 @@ from ..services.ai_service import AIService
 from ..models.email import Email
 from ..models.newsletter import Newsletter
 from ..models.summary import Summary, SummaryStatus, NewsletterSummaryItem
-from ..db.database import get_db_session
+from ..db.database import get_db_session, db_manager
 from ..db.models import SummaryModel, EmailModel, NewsletterModel
 from ..utils.config import get_settings
 from ..utils.exceptions import SummaryGenerationException
@@ -95,7 +95,7 @@ class ContentSummarizerAgent(BaseAgent):
 
     async def _get_unprocessed_newsletters(self) -> List[Newsletter]:
         try:
-            with get_db_session() as session:
+            with db_manager.get_session() as session:
                 query = session.query(NewsletterModel)\
                     .join(EmailModel, NewsletterModel.email_id == EmailModel.id)\
                     .filter(EmailModel.is_processed == False)\
@@ -119,7 +119,7 @@ class ContentSummarizerAgent(BaseAgent):
         emails_dict = {}
         
         try:
-            with get_db_session() as session:
+            with db_manager.get_session() as session:
                 email_models = session.query(EmailModel).filter(EmailModel.id.in_(email_ids)).all()
                 
                 for model in email_models:
@@ -188,7 +188,7 @@ class ContentSummarizerAgent(BaseAgent):
 
     async def _store_summary(self, summary: Summary):
         try:
-            with get_db_session() as session:
+            with db_manager.get_session() as session:
                 summary_model = SummaryModel(
                     id=summary.id,
                     title=summary.title,
@@ -218,7 +218,7 @@ class ContentSummarizerAgent(BaseAgent):
         try:
             email_ids = [newsletter.email_id for newsletter in newsletters]
             
-            with get_db_session() as session:
+            with db_manager.get_session() as session:
                 session.query(EmailModel)\
                     .filter(EmailModel.id.in_(email_ids))\
                     .update({EmailModel.is_processed: True, EmailModel.updated_at: datetime.now()})
@@ -263,7 +263,7 @@ class ContentSummarizerAgent(BaseAgent):
 
     async def _update_summary_status(self, summary_id: str, status: SummaryStatus, error_message: str = None):
         try:
-            with get_db_session() as session:
+            with db_manager.get_session() as session:
                 summary_model = session.query(SummaryModel).filter_by(id=summary_id).first()
                 if summary_model:
                     summary_model.status = status.value
@@ -277,7 +277,7 @@ class ContentSummarizerAgent(BaseAgent):
 
     async def get_recent_summaries(self, limit: int = 10) -> List[Summary]:
         try:
-            with get_db_session() as session:
+            with db_manager.get_session() as session:
                 summary_models = session.query(SummaryModel)\
                     .order_by(SummaryModel.generation_date.desc())\
                     .limit(limit)\

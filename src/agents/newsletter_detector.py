@@ -6,7 +6,7 @@ from .base_agent import BaseAgent, MessageType
 from ..services.ai_service import AIService
 from ..models.email import Email
 from ..models.newsletter import Newsletter, NewsletterType, DetectionMethod, NewsletterMetadata
-from ..db.database import get_db_session
+from ..db.database import get_db_session, db_manager
 from ..db.models import NewsletterModel, SenderStatsModel
 from ..utils.config import get_settings
 from ..utils.helpers import (
@@ -86,56 +86,69 @@ class NewsletterDetectorAgent(BaseAgent):
 
     async def _detect_newsletter(self, email: Email) -> Optional[Newsletter]:
         try:
-            confidence_score = 0.0
-            detection_methods = []
-            
-            basic_score, basic_methods = self._basic_newsletter_detection(email)
-            confidence_score += basic_score
-            detection_methods.extend(basic_methods)
-            
-            if confidence_score >= 0.5:
-                ai_classification = await self.ai_service.classify_email_content(email)
-                
-                if ai_classification.get("is_newsletter", False):
-                    ai_confidence = ai_classification.get("confidence", 0.0)
-                    confidence_score = (confidence_score + ai_confidence) / 2
-                    detection_methods.append(DetectionMethod.CONTENT_ANALYSIS)
-                    
-                    newsletter_type = self._map_ai_type_to_enum(
-                        ai_classification.get("type", "other")
-                    )
-                else:
-                    newsletter_type = NewsletterType.OTHER
+            # Use the same simple logic that was working in Gmail service
+            if self.ai_service:
+                try:
+                    ai_classification = await self.ai_service.classify_email_content(email)
+                    is_newsletter = ai_classification.get('is_newsletter', False)
+                    self.logger.debug(f"AI classification for '{email.subject[:30]}...': {ai_classification}")
+                except Exception as e:
+                    self.logger.warning(f"AI classification failed for {email.id}, using fallback: {e}")
+                    is_newsletter = self._fallback_newsletter_detection(email)
             else:
-                newsletter_type = NewsletterType.OTHER
-
-            sender_frequency_score = await self._calculate_sender_frequency_score(email.sender)
-            confidence_score = (confidence_score + sender_frequency_score) / 2
+                is_newsletter = self._fallback_newsletter_detection(email)
             
+            # If not classified as newsletter, return None
+            if not is_newsletter:
+                return None
+                
+            # Create newsletter object with AI classification results
+            confidence_score = ai_classification.get("confidence", 0.8) if 'ai_classification' in locals() else 0.7
+            detection_methods = [DetectionMethod.CONTENT_ANALYSIS]
+            
+            # Get newsletter type from AI classification
+            newsletter_type = self._map_ai_type_to_enum(
+                ai_classification.get("type", "other") if 'ai_classification' in locals() else "other"
+            )
+            
+            # Add basic detection signals
+            basic_score, basic_methods = self._basic_newsletter_detection(email)
+            if basic_score > 0:
+                detection_methods.extend(basic_methods)
+                confidence_score = min(0.95, confidence_score + (basic_score * 0.1))
+            
+            # Add sender frequency analysis
+            sender_frequency_score = await self._calculate_sender_frequency_score(email.sender)
             if sender_frequency_score > 0.3:
                 detection_methods.append(DetectionMethod.FREQUENCY_ANALYSIS)
+                confidence_score = min(0.98, confidence_score + (sender_frequency_score * 0.1))
 
-            if confidence_score >= self.settings.min_confidence_score:
-                metadata = self._create_newsletter_metadata(email)
-                
-                newsletter = Newsletter(
-                    email_id=email.id,
-                    newsletter_type=newsletter_type,
-                    confidence_score=confidence_score,
-                    detection_method=detection_methods[0] if detection_methods else DetectionMethod.HEADER_ANALYSIS,
-                    sender_domain=extract_domain(email.sender),
-                    sender_name=email.sender_name,
-                    metadata=metadata,
-                    classification_notes=f"Detected using methods: {', '.join([m.value for m in detection_methods])}"
-                )
-                
-                return newsletter
+            # Always create newsletter if AI classified it as such (no min threshold check)
+            metadata = self._create_newsletter_metadata(email)
             
-            return None
+            newsletter = Newsletter(
+                email_id=email.id,
+                newsletter_type=newsletter_type,
+                confidence_score=confidence_score,
+                detection_method=detection_methods[0] if detection_methods else DetectionMethod.HEADER_ANALYSIS,
+                sender_domain=extract_domain(email.sender),
+                sender_name=email.sender_name,
+                metadata=metadata,
+                classification_notes=f"Detected using methods: {', '.join([m.value for m in detection_methods])}"
+            )
+            
+            return newsletter
             
         except Exception as e:
             self.logger.error(f"Newsletter detection failed for email {email.id}: {e}")
             raise NewsletterDetectionException(f"Detection failed: {e}")
+    
+    def _fallback_newsletter_detection(self, email: Email) -> bool:
+        """
+        Basic newsletter detection if AI is not available.
+        Uses the existing method from the Email model.
+        """
+        return email.is_likely_newsletter()
 
     def _basic_newsletter_detection(self, email: Email) -> tuple[float, List[DetectionMethod]]:
         score = 0.0
@@ -179,7 +192,7 @@ class NewsletterDetectorAgent(BaseAgent):
 
     async def _calculate_sender_frequency_score(self, sender: str) -> float:
         try:
-            with get_db_session() as session:
+            with db_manager.get_session() as session:
                 stats = session.query(SenderStatsModel).filter_by(sender_email=sender).first()
                 
                 if not stats:
@@ -223,7 +236,7 @@ class NewsletterDetectorAgent(BaseAgent):
 
     async def _store_newsletter(self, newsletter: Newsletter):
         try:
-            with get_db_session() as session:
+            with db_manager.get_session() as session:
                 existing = session.query(NewsletterModel).filter_by(email_id=newsletter.email_id).first()
                 
                 if not existing:
@@ -253,7 +266,7 @@ class NewsletterDetectorAgent(BaseAgent):
 
     async def _update_sender_stats(self, email: Email, newsletter: Newsletter):
         try:
-            with get_db_session() as session:
+            with db_manager.get_session() as session:
                 stats = session.query(SenderStatsModel).filter_by(sender_email=email.sender).first()
                 
                 if not stats:
@@ -285,7 +298,7 @@ class NewsletterDetectorAgent(BaseAgent):
 
     async def get_newsletters_by_type(self, newsletter_type: NewsletterType = None, limit: int = None) -> List[Newsletter]:
         try:
-            with get_db_session() as session:
+            with db_manager.get_session() as session:
                 query = session.query(NewsletterModel)
                 
                 if newsletter_type:

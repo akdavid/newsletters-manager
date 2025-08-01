@@ -143,14 +143,88 @@ The integration test will:
 
 ## 🏃‍♂️ Usage
 
-### Start the FastAPI Server
+### Command Line Interface
+
+The system provides a rich CLI interface for all operations:
+
+**Run the complete newsletter processing pipeline:**
 ```bash
-uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+python main.py pipeline
 ```
 
-### Manual Newsletter Processing
+**Individual processing steps:**
 ```bash
-python -m src.agents.orchestrator --manual
+# Collect emails from all configured accounts
+python main.py collect
+
+# Detect newsletters in collected emails
+python main.py detect
+
+# Generate AI summaries for detected newsletters
+python main.py summarize
+```
+
+**View results:**
+```bash
+# View recent newsletter summaries
+python main.py summaries
+
+# Show system status and health
+python main.py status
+
+# Show current configuration
+python main.py config
+```
+
+### View Generated Summaries
+
+**Option 1: CLI Command**
+```bash
+python main.py summaries --limit 5
+```
+
+**Option 2: Export to HTML File**
+```bash
+# Export the latest summary to an HTML file
+sqlite3 newsletters.db "SELECT content FROM summaries ORDER BY generation_date DESC LIMIT 1;" > latest_summary.html
+
+# Open in your browser
+open latest_summary.html  # macOS
+```
+
+**Option 3: Direct Database Query**
+```bash
+# View summary metadata
+sqlite3 newsletters.db "SELECT id, title, status, newsletters_count, generation_date FROM summaries;"
+
+# View summary content
+sqlite3 newsletters.db "SELECT content FROM summaries WHERE id='your_summary_id';"
+```
+
+### Summary Format
+
+Generated summaries include:
+- **📊 Categorized newsletters** by type (TECH, BUSINESS, EDUCATION, HEALTH, etc.)
+- **🇫🇷 French summaries** of each newsletter (2-3 sentences)
+- **🎨 Styled HTML output** with responsive design
+- **📈 Processing statistics** and metadata
+- **🔗 Source tracking** with sender information
+
+**Example categories detected:**
+- **TECH**: AI frameworks, research labs, technology companies
+- **BUSINESS**: Professional updates, job opportunities, industry news  
+- **EDUCATION**: Online courses, cybersecurity training, MOOCs
+- **HEALTH**: Medical research, scientific breakthroughs
+- **NEWS**: Current events, scientific advances
+- **ENTERTAINMENT**: Humor, lifestyle content
+
+### Start the FastAPI Server
+```bash
+# Using the provided script
+python src/run_api.py
+
+# Or directly with uvicorn
+uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### API Endpoints

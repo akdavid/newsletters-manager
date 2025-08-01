@@ -70,15 +70,7 @@ class GmailService:
             self.credentials = creds
             self.service = build('gmail', 'v1', credentials=creds)
             
-            # Initialize AI service for newsletter detection
-            if self.settings.openai_api_key and self.settings.openai_api_key != 'your_openai_api_key':
-                from ..services.ai_service import AIService
-                self.ai_service = AIService(
-                    self.settings.openai_api_key,
-                    self.settings.openai_model,
-                    self.settings.openai_max_tokens
-                )
-                logger.info("AI service initialized for newsletter detection")
+            # AI service is handled by NewsletterDetectorAgent to avoid duplication
             
             logger.info(f"Gmail service authenticated for {self.account_type.value}")
             
@@ -178,17 +170,9 @@ class GmailService:
             raw_size=int(message.get('sizeEstimate', 0))
         )
         
-        # Apply AI-powered newsletter detection
-        if self.ai_service:
-            try:
-                classification = await self.ai_service.classify_email_content(email)
-                email.is_newsletter = classification.get('is_newsletter', False)
-                logger.debug(f"AI classification for '{email.subject[:30]}...': {classification}")
-            except Exception as e:
-                logger.warning(f"AI classification failed for {email.id}, using fallback: {e}")
-                email.is_newsletter = self._fallback_newsletter_detection(email)
-        else:
-            email.is_newsletter = self._fallback_newsletter_detection(email)
+        # Newsletter detection will be handled by NewsletterDetectorAgent
+        # This keeps the architecture clean and avoids duplication
+        email.is_newsletter = False  # Will be set by newsletter detector
         
         return email
 

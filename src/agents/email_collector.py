@@ -6,7 +6,7 @@ from .base_agent import BaseAgent, MessageType
 from ..services.gmail_service import GmailService
 from ..services.outlook_service import OutlookService
 from ..models.email import Email, AccountType
-from ..db.database import get_db_session
+from ..db.database import get_db_session, db_manager
 from ..db.models import EmailModel
 from ..utils.config import get_settings
 from ..utils.exceptions import EmailServiceException
@@ -29,17 +29,31 @@ class EmailCollectorAgent(BaseAgent):
     async def _initialize_services(self):
         try:
             for i, credentials_path in enumerate(self.settings.gmail_credentials_paths):
+                if not credentials_path or credentials_path.strip() == '' or credentials_path == '/path/to/gmail2_credentials.json':
+                    self.logger.info(f"Skipping Gmail account {i+1} (no credentials configured)")
+                    continue
+                    
                 account_type = [AccountType.GMAIL_1, AccountType.GMAIL_2, AccountType.GMAIL_3][i]
                 gmail_service = GmailService(credentials_path, account_type)
                 await gmail_service.authenticate()
                 self.gmail_services.append(gmail_service)
+                self.logger.info(f"Gmail account {i+1} ({account_type.value}) initialized successfully")
                 
-            self.outlook_service = OutlookService(
-                self.settings.outlook_client_id,
-                self.settings.outlook_client_secret,
-                self.settings.outlook_tenant_id
-            )
-            await self.outlook_service.authenticate(self.settings.outlook_email)
+            # Initialize Outlook service if configured
+            if (self.settings.outlook_client_id and 
+                self.settings.outlook_client_id != 'your_outlook_client_id' and
+                self.settings.outlook_client_secret and 
+                self.settings.outlook_client_secret != 'your_outlook_client_secret'):
+                
+                self.outlook_service = OutlookService(
+                    self.settings.outlook_client_id,
+                    self.settings.outlook_client_secret,
+                    self.settings.outlook_tenant_id
+                )
+                await self.outlook_service.authenticate(self.settings.outlook_email)
+                self.logger.info("Outlook service initialized successfully")
+            else:
+                self.logger.info("Skipping Outlook service (no credentials configured)")
             
             self.logger.info("All email services initialized successfully")
             
@@ -144,7 +158,7 @@ class EmailCollectorAgent(BaseAgent):
             return
             
         try:
-            with get_db_session() as session:
+            with db_manager.get_session() as session:
                 for email in emails:
                     existing = session.query(EmailModel).filter_by(message_id=email.message_id).first()
                     
@@ -184,7 +198,7 @@ class EmailCollectorAgent(BaseAgent):
         results = {}
         
         try:
-            with get_db_session() as session:
+            with db_manager.get_session() as session:
                 for email_id in email_ids:
                     email_model = session.query(EmailModel).filter_by(id=email_id).first()
                     if not email_model:
@@ -225,7 +239,7 @@ class EmailCollectorAgent(BaseAgent):
 
     async def get_unprocessed_emails(self, limit: int = None) -> List[Email]:
         try:
-            with get_db_session() as session:
+            with db_manager.get_session() as session:
                 query = session.query(EmailModel).filter_by(is_processed=False)
                 
                 if limit:
