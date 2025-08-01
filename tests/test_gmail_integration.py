@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import sys
-sys.path.append(str(Path(__file__).parent.parent / "src"))
+sys.path.append(str(Path(__file__).parent.parent))
 
 from src.services.gmail_service import GmailService
 from src.models.email import AccountType
@@ -37,7 +37,7 @@ async def main():
             
             # Test basic email fetching
             print("\n📬 Fetching recent emails...")
-            messages = await gmail_service.get_unread_messages(max_results=20)
+            messages = await gmail_service.get_unread_messages(max_results=50)
             
             print(f"Found {len(messages)} unread messages")
             

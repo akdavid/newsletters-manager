@@ -91,14 +91,16 @@ class GmailService:
             if not self.service:
                 await self.authenticate()
             
+            # Use INBOX + UNREAD labels to match Gmail web interface behavior
+            # This excludes spam, promotions, and other non-inbox folders
             results = self.service.users().messages().list(
                 userId='me',
-                q='is:unread',
+                labelIds=['INBOX', 'UNREAD'],
                 maxResults=max_results
             ).execute()
             
             messages = results.get('messages', [])
-            logger.info(f"Found {len(messages)} unread messages for {self.account_type.value}")
+            logger.info(f"Found {len(messages)} unread INBOX messages for {self.account_type.value}")
             return messages
             
         except HttpError as e:
