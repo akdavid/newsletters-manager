@@ -124,7 +124,10 @@ class GmailService:
         sender = headers.get('from', '')
         recipient = headers.get('to', '')
         date_str = headers.get('date', '')
-        message_id = headers.get('message-id', message['id'])
+        # Gmail's internal message ID (used for API operations)
+        gmail_message_id = message['id']
+        # Email header message-id (for reference)
+        header_message_id = headers.get('message-id', gmail_message_id)
         thread_id = message.get('threadId')
         
         received_date = parse_email_date(date_str) or datetime.now(timezone.utc)
@@ -149,11 +152,11 @@ class GmailService:
         
         labels = [label for label in message.get('labelIds', []) if not label.startswith('Label_')]
         
-        email_id = generate_email_id(message_id, self.account_type.value)
+        email_id = generate_email_id(gmail_message_id, self.account_type.value)
         
         email = Email(
             id=email_id,
-            message_id=message_id,
+            message_id=gmail_message_id,
             subject=subject,
             sender=sender_email,
             sender_name=sender_name,
@@ -166,7 +169,7 @@ class GmailService:
             thread_id=thread_id,
             labels=labels,
             attachments=attachments,
-            headers=headers,
+            headers={**headers, 'gmail-message-id': gmail_message_id, 'header-message-id': header_message_id},
             raw_size=int(message.get('sizeEstimate', 0))
         )
         
