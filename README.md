@@ -111,12 +111,57 @@ Newsletter Manager is a sophisticated multi-agent system that automatically:
    GMAIL_CREDENTIALS_PATH_3=path/to/gmail3_credentials.json
    ```
 
-6. **Set up Microsoft Graph API** (Optional for Outlook)
+6. **Set up Microsoft Graph API** (Optional for Outlook/Hotmail)
+   
+   **For Outlook/Hotmail accounts:**
+   
+   a) **Create Azure Account:**
+   - Go to [Azure Portal](https://azure.microsoft.com/free/) and create a free account
+   - Use your Microsoft account (same as your Outlook/Hotmail email)
+   
+   b) **Register Application:**
    - Go to [Azure Portal](https://portal.azure.com/)
-   - Register a new application in Azure AD
-   - Add API permissions: Mail.Read, Mail.ReadWrite, Mail.Send
-   - Create a client secret
-   - Update the `.env` file with your credentials
+   - Navigate to "Microsoft Entra ID" → "App registrations"
+   - Click "New registration"
+   - Name: "Newsletter Manager"
+   - Supported account types: "Accounts in any organizational directory and personal Microsoft accounts"
+   - Redirect URI: Leave blank
+   - Click "Register"
+   
+   c) **Configure Authentication:**
+   - Go to "Authentication" in your app
+   - Scroll to "Advanced settings"
+   - Set "Allow public client flows" to "Yes"
+   - Click "Save"
+   
+   d) **Set API Permissions:**
+   - Go to "API permissions" → "Add a permission"
+   - Select "Microsoft Graph" → "Delegated permissions"
+   - Add these permissions:
+     - `Mail.Read`
+     - `Mail.ReadWrite`
+     - `User.Read`
+   - Click "Grant admin consent" and confirm
+   - Ensure all permissions show green checkmarks
+   
+   e) **Create Client Secret:**
+   - Go to "Certificates & secrets" → "New client secret"
+   - Description: "Newsletter Manager Secret"
+   - Expires: 24 months
+   - Click "Add" and **copy the secret value immediately**
+   
+   f) **Get Credentials:**
+   - From the app overview page, copy:
+     - Application (client) ID
+     - Directory (tenant) ID (but use "common" in .env)
+   
+   g) **Update `.env` file:**
+   ```bash
+   OUTLOOK_CLIENT_ID=your_actual_client_id
+   OUTLOOK_CLIENT_SECRET=your_actual_client_secret
+   OUTLOOK_TENANT_ID=common
+   OUTLOOK_EMAIL=your_email@outlook.com
+   ```
 
 7. **Set up OpenAI API**
    - Sign up at [OpenAI](https://platform.openai.com/)
@@ -166,6 +211,11 @@ Test email sending (SMTP configuration):
 python tests/test_email_sending.py
 ```
 
+Test Outlook connection (Microsoft Graph API):
+```bash
+python tests/test_outlook_connection.py
+```
+
 
 ### Expected Output
 
@@ -182,6 +232,12 @@ python tests/test_email_sending.py
 1. ✅ Verify SMTP configuration
 2. 📧 Send test email to configured recipient
 3. 🔧 Provide troubleshooting guidance if issues occur
+
+**Outlook Connection Test:**
+1. ✅ Test Microsoft Graph API authentication
+2. 📊 Verify user profile and mail folder access
+3. 📨 Test basic message retrieval
+4. 🔧 Provide Azure AD troubleshooting guidance
 
 ## 🏃‍♂️ Usage
 
@@ -405,6 +461,27 @@ Structured logging with Loguru:
 - Check that Gmail API is enabled
 - Verify the credentials JSON file path in `.env`
 - Make sure you're using the correct Gmail account during OAuth flow
+
+**Microsoft Graph API / Outlook Issues**
+
+*Error: "401 Unauthorized" when accessing mail*
+- **Root cause:** Permissions not properly configured or consented
+- **Solution:**
+  1. Go to Azure Portal → Microsoft Entra ID → App registrations → Your app
+  2. Go to "API permissions" and ensure you have: Mail.Read, Mail.ReadWrite, User.Read
+  3. Click "Grant admin consent" - you should see green checkmarks
+  4. In "Authentication", set "Allow public client flows" to "Yes"
+  5. Use `OUTLOOK_TENANT_ID=common` in .env for personal accounts
+  6. Run the test again to get a fresh token with correct permissions
+
+*Error: "Authentication failed: client_assertion or client_secret required"*
+- **Root cause:** App not configured for public client flows
+- **Solution:** In Azure Portal → Your app → Authentication → Advanced settings → Set "Allow public client flows" to "Yes"
+
+*Personal accounts (Hotmail/Outlook.com) issues:*
+- Always use `OUTLOOK_TENANT_ID=common` for personal Microsoft accounts
+- Make sure the Azure app supports "personal Microsoft accounts" in registration
+- Some personal accounts may have limited Graph API access
 
 **OpenAI API Errors**  
 - Verify API key is valid and has sufficient credits

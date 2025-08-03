@@ -19,9 +19,9 @@ logger = get_logger(__name__)
 class OutlookService:
     GRAPH_ENDPOINT = "https://graph.microsoft.com/v1.0"
     SCOPES = [
-        "https://graph.microsoft.com/Mail.Read",
-        "https://graph.microsoft.com/Mail.ReadWrite",
-        "https://graph.microsoft.com/Mail.Send"
+        "Mail.Read",
+        "Mail.ReadWrite", 
+        "User.Read"
     ]
 
     def __init__(self, client_id: str, client_secret: str, tenant_id: str = "common"):
@@ -31,28 +31,35 @@ class OutlookService:
         self.access_token = None
         self.token_expires_at = None
         
-        self.app = msal.ConfidentialClientApplication(
+        # Use PublicClientApplication for device flow (personal accounts)
+        # Clear token cache to force fresh authentication with new permissions
+        self.public_app = msal.PublicClientApplication(
             client_id=self.client_id,
-            client_credential=self.client_secret,
             authority=f"https://login.microsoftonline.com/{self.tenant_id}"
         )
 
     async def authenticate(self, username: str = None):
         try:
-            if username:
-                result = self.app.acquire_token_by_username_password(
-                    username=username,
-                    password=input("Enter password: "),
-                    scopes=self.SCOPES
-                )
-            else:
-                flow = self.app.initiate_device_flow(scopes=self.SCOPES)
-                if "user_code" not in flow:
-                    raise OutlookServiceException("Failed to create device flow")
-                
-                print(f"Please visit {flow['verification_uri']} and enter code: {flow['user_code']}")
-                
-                result = self.app.acquire_token_by_device_flow(flow)
+            # First try silent authentication
+            accounts = self.public_app.get_accounts()
+            if accounts:
+                result = self.public_app.acquire_token_silent(self.SCOPES, account=accounts[0])
+                if result and "access_token" in result:
+                    self.access_token = result["access_token"]
+                    self.token_expires_at = datetime.now().timestamp() + result.get("expires_in", 3600)
+                    logger.info("Outlook service authenticated silently")
+                    return
+            
+            # If silent fails, use device flow
+            flow = self.public_app.initiate_device_flow(scopes=self.SCOPES)
+            if "user_code" not in flow:
+                raise OutlookServiceException("Failed to create device flow")
+            
+            print(f"\n🔗 Please visit: {flow['verification_uri']}")
+            print(f"🔢 Enter code: {flow['user_code']}")
+            print("⏳ Waiting for authentication...")
+            
+            result = self.public_app.acquire_token_by_device_flow(flow)
             
             if "access_token" in result:
                 self.access_token = result["access_token"]
@@ -68,9 +75,9 @@ class OutlookService:
 
     async def _ensure_token_valid(self):
         if not self.access_token or (self.token_expires_at and datetime.now().timestamp() >= self.token_expires_at):
-            accounts = self.app.get_accounts()
+            accounts = self.public_app.get_accounts()
             if accounts:
-                result = self.app.acquire_token_silent(self.SCOPES, account=accounts[0])
+                result = self.public_app.acquire_token_silent(self.SCOPES, account=accounts[0])
                 if result and "access_token" in result:
                     self.access_token = result["access_token"]
                     self.token_expires_at = datetime.now().timestamp() + result.get("expires_in", 3600)
