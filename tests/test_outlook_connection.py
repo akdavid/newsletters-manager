@@ -119,9 +119,9 @@ async def test_outlook_connection():
             return False
         
         # Now try to get messages
-        print("📨 Testing message access...")
+        print("📨 Testing message access (Inbox only)...")
         try:
-            messages = await outlook_service.get_unread_messages(max_results=5)
+            messages = await outlook_service.get_unread_messages(max_results=10)
         except Exception as e:
             # Try a simpler messages call manually
             print("🔍 Trying basic messages API call...")

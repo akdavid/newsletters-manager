@@ -105,12 +105,13 @@ class OutlookService:
 
     async def get_unread_messages(self, max_results: int = 100) -> List[Dict[str, Any]]:
         try:
-            endpoint = f"/me/messages?$filter=isRead eq false&$top={max_results}&$select=id,subject,from,toRecipients,receivedDateTime,bodyPreview,hasAttachments,internetMessageId"
+            # Only get messages from Inbox folder to avoid spam/junk
+            endpoint = f"/me/mailFolders/Inbox/messages?$filter=isRead eq false&$top={max_results}&$select=id,subject,from,toRecipients,receivedDateTime,bodyPreview,hasAttachments,internetMessageId"
             
             response = await self._make_request("GET", endpoint)
             messages = response.get("value", [])
             
-            logger.info(f"Found {len(messages)} unread messages in Outlook")
+            logger.info(f"Found {len(messages)} unread messages in Outlook Inbox")
             return messages
             
         except Exception as e:
