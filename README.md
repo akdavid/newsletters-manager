@@ -77,12 +77,39 @@ Newsletter Manager is a sophisticated multi-agent system that automatically:
    ```
 
 5. **Set up Gmail credentials**
+   
+   **For each Gmail account you want to connect:**
+   
+   a) **Create OAuth2 Credentials:**
    - Go to [Google Cloud Console](https://console.cloud.google.com/)
    - Create a new project or select an existing one
    - Enable the Gmail API
-   - Create credentials (OAuth 2.0 Client IDs)
+   - Go to "Credentials" → "Create Credentials" → "OAuth 2.0 Client IDs"
+   - Application type: "Desktop application"
+   - Name: "Newsletter Manager Gmail X" (where X is 1, 2, 3)
    - Download the credentials JSON file
-   - Place it in the project root and update the path in `.env`
+   - Place it in the project root with descriptive names
+   
+   b) **Configure OAuth Consent Screen:**
+   - Go to "APIs & Services" → "OAuth consent screen"
+   - Choose "External" user type
+   - Fill in app information (name: "Newsletter Manager")
+   - Add scopes: `https://www.googleapis.com/auth/gmail.readonly` and `https://www.googleapis.com/auth/gmail.modify`
+   
+   c) **Add Test Users (IMPORTANT):**
+   - In the OAuth consent screen, scroll to "Test users"
+   - Click "ADD USERS"
+   - Add ALL Gmail account emails you want to connect
+   - Click "SAVE"
+   
+   **Alternative:** Publish your app to avoid test user limitations
+   
+   d) **Update `.env` file:**
+   ```bash
+   GMAIL_CREDENTIALS_PATH_1=path/to/gmail1_credentials.json
+   GMAIL_CREDENTIALS_PATH_2=path/to/gmail2_credentials.json
+   GMAIL_CREDENTIALS_PATH_3=path/to/gmail3_credentials.json
+   ```
 
 6. **Set up Microsoft Graph API** (Optional for Outlook)
    - Go to [Azure Portal](https://portal.azure.com/)
@@ -122,11 +149,11 @@ TIMEZONE=Europe/Paris
 
 ## 🧪 Testing
 
-### Run Integration Tests
+### Run Tests
 
-Test your Gmail integration:
+Test Gmail connections (all configured accounts):
 ```bash
-python tests/test_gmail_integration.py
+python tests/test_gmail_connection.py
 ```
 
 Test configuration:
@@ -134,12 +161,27 @@ Test configuration:
 python tests/test_config.py
 ```
 
+Test email sending (SMTP configuration):
+```bash
+python tests/test_email_sending.py
+```
+
+
 ### Expected Output
-The integration test will:
-1. ✅ Authenticate with Gmail
-2. 📬 Fetch recent emails (configurable amount)
-3. 🤖 Apply AI classification to detect newsletters
-4. 📊 Display results with detailed breakdown
+
+**Gmail Connection Test:**
+1. ✅ Test authentication for all configured Gmail accounts
+2. 📊 Verify API access and basic functionality
+3. 📈 Display summary of working/failed accounts
+
+**Configuration Test:**
+1. ✅ Validate all environment variables
+2. 🔧 Check file paths and credentials existence
+
+**Email Sending Test:**
+1. ✅ Verify SMTP configuration
+2. 📧 Send test email to configured recipient
+3. 🔧 Provide troubleshooting guidance if issues occur
 
 ## 🏃‍♂️ Usage
 
@@ -346,9 +388,23 @@ Structured logging with Loguru:
 ### Common Issues
 
 **Gmail Authentication Issues**
+
+*Error: "Accès bloqué : la demande de Newsletter Manager n'est pas valide" or "Error 400: invalid_request"*
+- **Root cause:** Gmail account not added as test user in Google Cloud Console
+- **Solution 1:** Add test users:
+  1. Go to Google Cloud Console → APIs & Services → OAuth consent screen
+  2. Scroll to "Test users" section
+  3. Click "ADD USERS" and add all Gmail accounts you want to connect
+  4. Click "SAVE"
+- **Solution 2:** Publish your app:
+  1. In OAuth consent screen, click "PUBLISH APP"
+  2. Confirm publishing (makes app available to any Google account)
+
+*Other authentication issues:*
 - Ensure OAuth credentials are correctly configured in Google Cloud Console
 - Check that Gmail API is enabled
 - Verify the credentials JSON file path in `.env`
+- Make sure you're using the correct Gmail account during OAuth flow
 
 **OpenAI API Errors**  
 - Verify API key is valid and has sufficient credits
