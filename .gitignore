@@ -80,6 +80,11 @@ credentials.json
 token.json
 client_secret*.json
 client_secret*.pickle
+*.token.pickle
+*.credentials
+secrets/
+auth/
+.auth/
 
 # FastAPI
 .env
