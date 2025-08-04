@@ -25,6 +25,35 @@ class EmailCollectorAgent(BaseAgent):
     async def start(self):
         await super().start()
         await self._initialize_services()
+        await self._setup_subscriptions()
+
+    async def _setup_subscriptions(self):
+        """Subscribe to mark emails as read requests"""
+        from .base_agent import message_broker
+        self.logger.info("🔔 EmailCollector subscribing to EMAILS_MARKED_READ messages")
+        message_broker.subscribe(MessageType.EMAILS_MARKED_READ, self._handle_mark_emails_as_read)
+
+    async def _handle_mark_emails_as_read(self, message):
+        """Handle request to mark emails as read"""
+        if message.data.get("action") == "mark_as_read":
+            email_ids = message.data.get("email_ids", [])
+            if email_ids:
+                self.logger.info(f"Processing request to mark {len(email_ids)} emails as read")
+                results = await self.mark_emails_as_read(email_ids)
+                
+                # Send a pipeline-specific completion message
+                from .base_agent import message_broker, AgentMessage, MessageType
+                pipeline_message = AgentMessage.create(
+                    msg_type=MessageType.EMAILS_MARKED_READ,
+                    sender=self.name,
+                    data={
+                        "results": results,
+                        "processed_count": len(email_ids),
+                        "pipeline_completion": True,  # Mark this as pipeline completion
+                        "source": "pipeline_automation"
+                    }
+                )
+                await message_broker.publish(pipeline_message)
 
     async def _initialize_services(self):
         try:
@@ -181,7 +210,8 @@ class EmailCollectorAgent(BaseAgent):
                             labels=email.labels,
                             attachments=[att.__dict__ for att in email.attachments],
                             headers=email.headers,
-                            raw_size=email.raw_size
+                            raw_size=email.raw_size,
+                            provider_id=email.provider_id
                         )
                         session.add(email_model)
                     else:
@@ -221,9 +251,12 @@ class EmailCollectorAgent(BaseAgent):
                             self.logger.error(f"Gmail service index {service_index} not available")
                     elif email_model.account_source == 'hotmail':
                         if self.outlook_service:
-                            success = await self.outlook_service.mark_message_as_read(
-                                email_model.message_id
-                            )
+                            # Use provider_id for Outlook (Graph API ID) instead of message_id
+                            outlook_id = email_model.provider_id or email_model.message_id
+                            success = await self.outlook_service.mark_message_as_read(outlook_id)
+                            if not success and email_model.provider_id:
+                                self.logger.warning(f"Failed with provider_id, trying message_id for {email_id}")
+                                success = await self.outlook_service.mark_message_as_read(email_model.message_id)
                         else:
                             self.logger.error("Outlook service not configured")
                     else:
@@ -306,6 +339,7 @@ class EmailCollectorAgent(BaseAgent):
             attachments=attachments,
             headers=model.headers or {},
             raw_size=model.raw_size,
+            provider_id=model.provider_id,
             created_at=model.created_at,
             updated_at=model.updated_at
         )

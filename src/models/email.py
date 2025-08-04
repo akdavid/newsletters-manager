@@ -46,6 +46,7 @@ class Email:
     attachments: List[EmailAttachment] = field(default_factory=list)
     headers: Dict[str, str] = field(default_factory=dict)
     raw_size: int = 0
+    provider_id: Optional[str] = None  # For storing provider-specific IDs (e.g., Graph API ID for Outlook)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 

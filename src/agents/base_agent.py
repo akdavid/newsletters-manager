@@ -57,7 +57,12 @@ class MessageBroker:
     def subscribe(self, message_type: MessageType, callback: callable):
         if message_type not in self._subscribers:
             self._subscribers[message_type] = []
-        self._subscribers[message_type].append(callback)
+        # Prevent duplicate subscriptions by checking if callback already exists
+        if callback not in self._subscribers[message_type]:
+            self._subscribers[message_type].append(callback)
+            logger.debug(f"Subscribed to {message_type.value}, total callbacks: {len(self._subscribers[message_type])}")
+        else:
+            logger.debug(f"Callback already subscribed to {message_type.value}, skipping duplicate")
 
     def unsubscribe(self, message_type: MessageType, callback: callable):
         if message_type in self._subscribers:
@@ -81,6 +86,10 @@ class MessageBroker:
 
     async def stop(self):
         self._running = False
+    
+    def get_subscription_count(self, message_type: MessageType) -> int:
+        """Get the number of callbacks subscribed to a message type"""
+        return len(self._subscribers.get(message_type, []))
 
     async def _process_message(self, message: AgentMessage):
         if message.type in self._subscribers:

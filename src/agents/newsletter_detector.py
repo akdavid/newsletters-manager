@@ -34,7 +34,20 @@ class NewsletterDetectorAgent(BaseAgent):
         await self._setup_subscriptions()
 
     async def _setup_subscriptions(self):
-        self.subscribe_to_message(MessageType.EMAIL_COLLECTED, self._handle_email_collected)
+        # Import the global message broker to ensure we use the same instance
+        from .base_agent import message_broker
+        self.logger.info("🔔 NewsletterDetector subscribing to EMAIL_COLLECTED messages")
+        
+        # Check current subscription count before subscribing
+        before_count = message_broker.get_subscription_count(MessageType.EMAIL_COLLECTED)
+        self.logger.info(f"EMAIL_COLLECTED subscriptions before: {before_count}")
+        
+        message_broker.subscribe(MessageType.EMAIL_COLLECTED, self._handle_email_collected)
+        
+        # Check subscription count after subscribing  
+        after_count = message_broker.get_subscription_count(MessageType.EMAIL_COLLECTED)
+        self.logger.info(f"EMAIL_COLLECTED subscriptions after: {after_count}")
+        self.logger.info("🔔 NewsletterDetector subscription setup complete")
 
     async def _handle_email_collected(self, message):
         self.logger.info("Processing collected emails for newsletter detection")
@@ -76,10 +89,16 @@ class NewsletterDetectorAgent(BaseAgent):
             "newsletters": detected_newsletters
         }
 
-        await self.publish_message(
-            MessageType.NEWSLETTER_DETECTED,
-            result
+        self.logger.info(f"Publishing NEWSLETTER_DETECTED message with {len(detected_newsletters)} newsletters")
+        # Use global message broker to ensure orchestrator receives the message
+        from .base_agent import message_broker, AgentMessage
+        message = AgentMessage.create(
+            msg_type=MessageType.NEWSLETTER_DETECTED,
+            sender=self.name,
+            data=result
         )
+        await message_broker.publish(message)
+        self.logger.info("NEWSLETTER_DETECTED message published successfully")
 
         self.logger.info(f"Newsletter detection completed: {len(detected_newsletters)} newsletters detected")
         return result

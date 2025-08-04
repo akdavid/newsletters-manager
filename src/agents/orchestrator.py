@@ -27,6 +27,13 @@ class OrchestratorAgent(BaseAgent):
         
         self.agents = {}
         self.message_broker_task = None
+        
+        # Pipeline completion tracking
+        self.pipeline_state = {
+            "newsletter_detection_completed": False,
+            "content_summarization_completed": False,
+            "pipeline_result": None
+        }
 
     async def start(self):
         await super().start()
@@ -90,12 +97,111 @@ class OrchestratorAgent(BaseAgent):
         
         message_broker.subscribe(MessageType.ERROR_OCCURRED, self._handle_error_message)
         message_broker.subscribe(MessageType.TASK_COMPLETED, self._handle_task_completed)
+        
+        # Subscribe to pipeline completion events using the same message broker
+        self.logger.info("🔔 Setting up message subscriptions for pipeline completion")
+        message_broker.subscribe(MessageType.NEWSLETTER_DETECTED, self._handle_newsletter_detection_completed)
+        message_broker.subscribe(MessageType.SUMMARY_GENERATED, self._handle_summarization_completed)
+        message_broker.subscribe(MessageType.EMAILS_MARKED_READ, self._handle_emails_marked_read_completed)
+        self.logger.info("🔔 Message subscriptions set up successfully")
 
     async def _handle_error_message(self, message):
         self.logger.error(f"Error from {message.sender}: {message.data}")
 
     async def _handle_task_completed(self, message):
         self.logger.info(f"Task completed by {message.sender}: {message.data}")
+    
+    async def _handle_newsletter_detection_completed(self, message):
+        self.logger.info("🎯 ORCHESTRATOR RECEIVED: Newsletter detection completed, updating pipeline state")
+        self.pipeline_state["newsletter_detection_completed"] = True
+        if self.pipeline_state["pipeline_result"]:
+            # Calculate duration from the step start time if available
+            step_data = self.pipeline_state["pipeline_result"]["steps"].get("newsletter_detection", {})
+            start_time = step_data.get("start_time")
+            duration = 0.0
+            if start_time:
+                from datetime import datetime
+                duration = (datetime.now() - datetime.fromisoformat(start_time)).total_seconds()
+            
+            self.pipeline_state["pipeline_result"]["steps"]["newsletter_detection"] = {
+                "status": "completed",
+                "duration": duration,
+                "detected_count": message.data.get("detected_count", 0),
+                "processed_count": message.data.get("processed_count", 0),
+                "execution_time": message.data.get("execution_time", duration)
+            }
+            
+            # Initialize content summarization step when detection completes
+            if message.data.get("detected_count", 0) > 0:
+                self.pipeline_state["pipeline_result"]["steps"]["content_summarization"] = {
+                    "status": "in_progress",
+                    "start_time": datetime.now().isoformat(),
+                    "duration": 0.0
+                }
+    
+    async def _handle_summarization_completed(self, message):
+        self.logger.info("Content summarization completed, updating pipeline state")
+        self.pipeline_state["content_summarization_completed"] = True
+        if self.pipeline_state["pipeline_result"]:
+            # Calculate duration from the step start time if available
+            step_data = self.pipeline_state["pipeline_result"]["steps"].get("content_summarization", {})
+            start_time = step_data.get("start_time")
+            duration = 0.0
+            if start_time:
+                from datetime import datetime
+                duration = (datetime.now() - datetime.fromisoformat(start_time)).total_seconds()
+            
+            self.pipeline_state["pipeline_result"]["steps"]["content_summarization"] = {
+                "status": "completed",
+                "duration": duration,
+                "summary_generated": message.data.get("summary_generated", False),
+                "newsletters_count": message.data.get("newsletters_count", 0),
+                "processing_duration": message.data.get("processing_duration", duration),
+                "email_sent": message.data.get("email_sent", False)
+            }
+            
+            # Add email sending step if email was sent
+            if message.data.get("email_sent", False):
+                self.pipeline_state["pipeline_result"]["steps"]["email_sending"] = {
+                    "status": "completed", 
+                    "duration": 1.0,  # Approximate time for email sending
+                    "email_sent": True,
+                    "recipients": 1
+                }
+            
+            # Add mark-as-read step tracking (will be updated when emails are marked)
+            self.pipeline_state["pipeline_result"]["steps"]["mark_emails_read"] = {
+                "status": "in_progress",
+                "duration": 0.0,
+                "emails_to_mark": message.data.get("newsletters_count", 0),
+                "start_time": datetime.now().isoformat()
+            }
+
+    async def _handle_emails_marked_read_completed(self, message):
+        # Only process pipeline completion messages, ignore regular mark-as-read messages
+        if not message.data.get("pipeline_completion", False):
+            return
+            
+        self.logger.info("Emails marked as read completed, updating pipeline state")
+        if self.pipeline_state["pipeline_result"]:
+            # Calculate duration for mark-as-read step
+            step_data = self.pipeline_state["pipeline_result"]["steps"].get("mark_emails_read", {})
+            start_time = step_data.get("start_time")
+            duration = 0.0
+            if start_time:
+                from datetime import datetime
+                duration = (datetime.now() - datetime.fromisoformat(start_time)).total_seconds()
+            
+            results = message.data.get("results", {})
+            successful_marks = sum(1 for success in results.values() if success)
+            total_emails = len(results)
+            
+            self.pipeline_state["pipeline_result"]["steps"]["mark_emails_read"] = {
+                "status": "completed",
+                "duration": duration,
+                "emails_marked": f"{successful_marks}/{total_emails}",
+                "success_rate": f"{(successful_marks/total_emails*100):.1f}%" if total_emails > 0 else "0%"
+            }
 
     async def execute(self, operation: str = "full_pipeline", **kwargs) -> Dict[str, Any]:
         if operation == "full_pipeline":
@@ -136,47 +242,49 @@ class OrchestratorAgent(BaseAgent):
                 pipeline_result["message"] = "No emails to process"
                 return pipeline_result
             
-            await asyncio.sleep(1)
+            # Store pipeline result for message handlers to update
+            self.pipeline_state["pipeline_result"] = pipeline_result
+            self.pipeline_state["newsletter_detection_completed"] = False
+            self.pipeline_state["content_summarization_completed"] = False
             
-            step_start = datetime.now()
-            detection_result = await self.newsletter_detector.execute(email_result["emails"])
+            # Initialize newsletter detection step tracking
             pipeline_result["steps"]["newsletter_detection"] = {
-                "status": "completed",
-                "duration": (datetime.now() - step_start).total_seconds(),
-                "detected_count": detection_result.get("detected_count", 0),
-                "processed_count": detection_result.get("processed_count", 0)
+                "status": "in_progress",
+                "start_time": datetime.now().isoformat(),
+                "duration": 0.0
             }
             
-            if detection_result.get("detected_count", 0) == 0:
-                pipeline_result["status"] = "completed"
-                pipeline_result["message"] = "No newsletters detected"
-                return pipeline_result
+            # Newsletter detection will be triggered automatically via EMAIL_COLLECTED message
+            # Wait for both newsletter detection and summarization to complete
+            self.logger.info("Waiting for newsletter detection and summarization to complete...")
             
-            await asyncio.sleep(1)
+            max_wait_time = self.settings.pipeline_timeout_seconds
+            check_interval = 2   # Check every 2 seconds
+            elapsed = 0
             
-            step_start = datetime.now()
-            summary = await self.content_summarizer.execute(detection_result["newsletters"])
-            
-            if summary:
-                summary_sent = await self.content_summarizer.send_summary_email(summary)
-                
-                pipeline_result["steps"]["content_summarization"] = {
-                    "status": "completed",
-                    "duration": (datetime.now() - step_start).total_seconds(),
-                    "summary_id": summary.id,
-                    "newsletters_count": summary.newsletters_count,
-                    "email_sent": summary_sent
-                }
-                
-                if summary_sent:
-                    email_ids = [newsletter.email_id for newsletter in detection_result["newsletters"]]
-                    mark_results = await self.email_collector.mark_emails_as_read(email_ids)
+            while elapsed < max_wait_time:
+                if (self.pipeline_state["newsletter_detection_completed"] and 
+                    self.pipeline_state["content_summarization_completed"]):
+                    self.logger.info("All pipeline steps completed successfully")
+                    break
                     
-                    pipeline_result["steps"]["mark_as_read"] = {
-                        "status": "completed",
-                        "marked_count": sum(1 for success in mark_results.values() if success),
-                        "total_count": len(mark_results)
-                    }
+                await asyncio.sleep(check_interval)
+                elapsed += check_interval
+                
+                # Log progress every 10 seconds
+                if elapsed % 10 == 0:
+                    detection_status = "✅" if self.pipeline_state["newsletter_detection_completed"] else "⏳"
+                    summarization_status = "✅" if self.pipeline_state["content_summarization_completed"] else "⏳"
+                    self.logger.info(f"Pipeline progress: Detection {detection_status}, Summarization {summarization_status}")
+            
+            if elapsed >= max_wait_time:
+                self.logger.warning("Pipeline timeout - some steps may not have completed")
+                pipeline_result["status"] = "timeout"
+                pipeline_result["message"] = "Some steps did not complete within the timeout period"
+            
+            # Ensure final status is set
+            if not pipeline_result.get("status") == "timeout":
+                pipeline_result["status"] = "completed"
             
             total_duration = (datetime.now() - start_time).total_seconds()
             pipeline_result["status"] = "completed"

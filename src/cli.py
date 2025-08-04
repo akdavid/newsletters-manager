@@ -156,20 +156,36 @@ def pipeline(ctx):
     
     for step_name, step_data in steps.items():
         details = []
+        
+        # Email Collection
         if 'collected_count' in step_data:
             details.append(f"Collected: {step_data['collected_count']}")
+        
+        # Newsletter Detection  
         if 'detected_count' in step_data:
             details.append(f"Detected: {step_data['detected_count']}")
+        
+        # Content Summarization
         if 'newsletters_count' in step_data:
             details.append(f"Summarized: {step_data['newsletters_count']}")
-        if 'marked_count' in step_data:
-            details.append(f"Marked as read: {step_data['marked_count']}")
+        
+        # Email Sending
+        if 'recipients' in step_data:
+            details.append(f"Recipients: {step_data['recipients']}")
+        elif 'email_sent' in step_data and step_data['email_sent']:
+            details.append("Email sent ✅")
+        
+        # Mark Emails Read
+        if 'emails_marked' in step_data:
+            details.append(f"Marked: {step_data['emails_marked']}")
+        if 'success_rate' in step_data:
+            details.append(f"Success: {step_data['success_rate']}")
         
         table.add_row(
             step_name.replace('_', ' ').title(),
             step_data.get('status', 'unknown'),
             f"{step_data.get('duration', 0):.2f}s",
-            " | ".join(details)
+            " | ".join(details) if details else ""
         )
     
     console.print(table)

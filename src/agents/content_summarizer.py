@@ -77,16 +77,27 @@ class ContentSummarizerAgent(BaseAgent):
             
             await self._mark_emails_as_processed(newsletters)
             
+            # Send summary email automatically during pipeline execution
+            email_sent = await self.send_summary_email(daily_summary)
+            
+            # Request email collector to mark emails as read
+            if email_sent:
+                await self._request_mark_emails_as_read(newsletters)
+            
             await self.publish_message(
                 MessageType.SUMMARY_GENERATED,
                 {
                     "summary_id": daily_summary.id,
                     "newsletters_count": len(newsletter_summaries),
-                    "processing_duration": daily_summary.processing_duration
+                    "processing_duration": daily_summary.processing_duration,
+                    "email_sent": email_sent,
+                    "summary_generated": True
                 }
             )
 
             self.logger.info(f"Summary generated successfully: {daily_summary.id}")
+            if email_sent:
+                self.logger.info("Summary email sent successfully")
             return daily_summary
             
         except Exception as e:
@@ -230,6 +241,28 @@ class ContentSummarizerAgent(BaseAgent):
         except Exception as e:
             self.logger.error(f"Failed to mark emails as processed: {e}")
             raise
+
+    async def _request_mark_emails_as_read(self, newsletters: List[Newsletter]):
+        """Request the email collector to mark newsletters as read in the email providers"""
+        try:
+            email_ids = [newsletter.email_id for newsletter in newsletters]
+            
+            # Get the orchestrator to request email marking
+            from .base_agent import message_broker, AgentMessage, MessageType
+            
+            # Create a custom message type for marking emails as read
+            message = AgentMessage.create(
+                msg_type=MessageType.EMAILS_MARKED_READ,  # Reuse existing message type
+                sender=self.name,
+                data={"email_ids": email_ids, "action": "mark_as_read"}
+            )
+            
+            await message_broker.publish(message)
+            self.logger.info(f"Requested to mark {len(email_ids)} emails as read")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to request mark emails as read: {e}")
+            # Don't raise - this is not critical to fail the whole summarization process
 
     async def send_summary_email(self, summary: Summary, recipient: str = None) -> bool:
         try:

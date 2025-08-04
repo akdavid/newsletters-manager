@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     gmail_requests_per_minute: int = Field(100, env="GMAIL_REQUESTS_PER_MINUTE")
     outlook_requests_per_minute: int = Field(60, env="OUTLOOK_REQUESTS_PER_MINUTE")
     openai_requests_per_minute: int = Field(20, env="OPENAI_REQUESTS_PER_MINUTE")
+    
+    # Pipeline Configuration
+    pipeline_timeout_seconds: int = Field(300, env="PIPELINE_TIMEOUT_SECONDS")  # 5 minutes default
 
     class Config:
         env_file = ".env"

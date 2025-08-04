@@ -30,6 +30,7 @@ class EmailModel(Base):
     attachments = Column(JSON, default=list)
     headers = Column(JSON, default=dict)
     raw_size = Column(Integer, default=0)
+    provider_id = Column(String)  # For storing provider-specific IDs (e.g., Graph API ID)
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 

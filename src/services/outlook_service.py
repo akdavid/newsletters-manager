@@ -130,7 +130,9 @@ class OutlookService:
             return None
 
     def _parse_message(self, message: Dict[str, Any]) -> Email:
+        # Use internetMessageId for uniqueness/deduplication, Graph ID for API operations
         message_id = message.get("internetMessageId", message.get("id", ""))
+        graph_id = message.get("id", "")  # Microsoft Graph API ID for operations
         subject = message.get("subject", "No Subject")
         
         from_data = message.get("from", {}).get("emailAddress", {})
@@ -190,7 +192,8 @@ class OutlookService:
             labels=categories,
             attachments=attachments,
             headers={},
-            raw_size=len(content)
+            raw_size=len(content),
+            provider_id=graph_id  # Store Graph API ID for operations
         )
 
     async def mark_message_as_read(self, message_id: str) -> bool:
