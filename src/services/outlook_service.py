@@ -1,7 +1,9 @@
 import json
 import asyncio
+import os
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+from pathlib import Path
 import aiohttp
 import msal
 
@@ -31,24 +33,56 @@ class OutlookService:
         self.access_token = None
         self.token_expires_at = None
         
+        # Create cache directory
+        cache_dir = Path.home() / ".newsletters_cache"
+        cache_dir.mkdir(exist_ok=True)
+        
+        # Token cache file path
+        self.token_cache_file = cache_dir / "outlook_token_cache.json"
+        
+        # Initialize token cache
+        cache = msal.SerializableTokenCache()
+        if self.token_cache_file.exists():
+            with open(self.token_cache_file, 'r') as f:
+                cache.deserialize(f.read())
+        
         # Use PublicClientApplication for device flow (personal accounts)
-        # Clear token cache to force fresh authentication with new permissions
         self.public_app = msal.PublicClientApplication(
             client_id=self.client_id,
-            authority=f"https://login.microsoftonline.com/{self.tenant_id}"
+            authority=f"https://login.microsoftonline.com/{self.tenant_id}",
+            token_cache=cache
         )
+        
+        # Save cache when it changes
+        if cache.has_state_changed:
+            self._save_cache()
 
     async def authenticate(self, username: str = None):
         try:
-            # First try silent authentication
-            accounts = self.public_app.get_accounts()
+            # First try silent authentication with existing accounts
+            accounts = self.public_app.get_accounts(username=username)
             if accounts:
-                result = self.public_app.acquire_token_silent(self.SCOPES, account=accounts[0])
+                logger.info(f"Found {len(accounts)} cached account(s), attempting silent authentication...")
+                # Try with the first account (or specific username match)
+                account = accounts[0]
+                if username:
+                    # Find account matching username if specified
+                    for acc in accounts:
+                        if acc.get("username") == username:
+                            account = acc
+                            break
+                
+                result = self.public_app.acquire_token_silent(self.SCOPES, account=account)
                 if result and "access_token" in result:
                     self.access_token = result["access_token"]
                     self.token_expires_at = datetime.now().timestamp() + result.get("expires_in", 3600)
-                    logger.info("Outlook service authenticated silently")
+                    self._save_cache()
+                    logger.info(f"Outlook service authenticated silently for account: {account.get('username', 'unknown')}")
                     return
+                else:
+                    logger.info("Silent authentication failed, falling back to interactive login")
+            else:
+                logger.info("No cached accounts found, proceeding with device flow")
             
             # If silent fails, use device flow
             flow = self.public_app.initiate_device_flow(scopes=self.SCOPES)
@@ -64,7 +98,8 @@ class OutlookService:
             if "access_token" in result:
                 self.access_token = result["access_token"]
                 self.token_expires_at = datetime.now().timestamp() + result.get("expires_in", 3600)
-                logger.info("Outlook service authenticated successfully")
+                self._save_cache()
+                logger.info("Outlook service authenticated successfully via device flow")
             else:
                 error = result.get("error_description", "Unknown error")
                 raise OutlookServiceException(f"Authentication failed: {error}")
@@ -72,6 +107,9 @@ class OutlookService:
         except Exception as e:
             logger.error(f"Outlook authentication failed: {e}")
             raise OutlookServiceException(f"Authentication failed: {e}")
+        finally:
+            # Always save cache after authentication attempt
+            self._save_cache()
 
     async def _ensure_token_valid(self):
         if not self.access_token or (self.token_expires_at and datetime.now().timestamp() >= self.token_expires_at):
@@ -81,6 +119,7 @@ class OutlookService:
                 if result and "access_token" in result:
                     self.access_token = result["access_token"]
                     self.token_expires_at = datetime.now().timestamp() + result.get("expires_in", 3600)
+                    self._save_cache()
                 else:
                     raise OutlookServiceException("Token refresh failed, re-authentication required")
 
@@ -249,3 +288,13 @@ class OutlookService:
         except Exception as e:
             logger.error(f"Error getting user email from Outlook: {e}")
             return None
+    
+    def _save_cache(self):
+        """Save token cache to file for persistence."""
+        try:
+            if self.public_app.token_cache.has_state_changed:
+                with open(self.token_cache_file, 'w') as f:
+                    f.write(self.public_app.token_cache.serialize())
+                logger.debug(f"Token cache saved to {self.token_cache_file}")
+        except Exception as e:
+            logger.warning(f"Failed to save token cache: {e}")
