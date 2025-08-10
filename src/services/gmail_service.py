@@ -3,13 +3,12 @@ import base64
 import pickle
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
-import asyncio
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.exceptions import RefreshError
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
@@ -50,19 +49,25 @@ class GmailService:
                     creds = pickle.load(token)
             
             if not creds or not creds.valid:
+                # Try refreshing existing credentials if possible
                 if creds and creds.expired and creds.refresh_token:
-                    creds.refresh(Request())
-                else:
-                    flow = Flow.from_client_secrets_file(
-                        self.credentials_path, self.SCOPES)
-                    flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
-                    
-                    auth_url, _ = flow.authorization_url(prompt='consent')
-                    logger.info(f"Please visit this URL to authorize Gmail access: {auth_url}")
-                    
-                    authorization_code = input('Enter the authorization code: ')
-                    flow.fetch_token(code=authorization_code)
-                    creds = flow.credentials
+                    try:
+                        creds.refresh(Request())
+                    except RefreshError as refresh_error:
+                        logger.warning(f"Refresh token invalid or revoked for {self.account_type.value}: {refresh_error}. Re-authenticating via browser...")
+                        creds = None  # Force full re-auth below
+                    except Exception as refresh_unexpected:
+                        logger.warning(f"Unexpected error during token refresh for {self.account_type.value}: {refresh_unexpected}. Re-authenticating via browser...")
+                        creds = None
+                
+                # Perform full OAuth flow if no valid/refreshable creds
+                if not creds or not creds.valid:
+                    # Prefer InstalledAppFlow with local server (avoids deprecated OOB flow)
+                    flow = InstalledAppFlow.from_client_secrets_file(
+                        self.credentials_path, self.SCOPES
+                    )
+                    # Opens a browser and handles redirect locally
+                    creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
                 
                 with open(token_path, 'wb') as token:
                     pickle.dump(creds, token)
