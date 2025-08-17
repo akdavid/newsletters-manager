@@ -176,8 +176,8 @@ def extract_key_metrics(content: str) -> Dict[str, Any]:
     }
 
 
-def extract_links_from_email(html_content: str, text_content: str = None) -> List[str]:
-    """Extract all HTTP/HTTPS links from email content."""
+def extract_all_links_from_email(html_content: str, text_content: str = None) -> List[str]:
+    """Extract all HTTP/HTTPS links from email content for LLM selection."""
     links = set()
     
     # Extract from HTML if available
@@ -187,17 +187,21 @@ def extract_links_from_email(html_content: str, text_content: str = None) -> Lis
         for link in soup.find_all('a', href=True):
             href = link['href']
             if href.startswith(('http://', 'https://')):
-                # Filter out common tracking and unsubscribe links
-                if not any(term in href.lower() for term in ['unsubscribe', 'optout', 'track', 'pixel', 'beacon']):
-                    links.add(href)
+                # Only skip obvious tracking and unsubscribe links
+                skip_terms = ['unsubscribe', 'optout', 'pixel', 'beacon']
+                
+                if not any(term in href.lower() for term in skip_terms):
+                    # Clean the link by removing tracking parameters
+                    clean_href = href.split('?')[0] if '?' in href else href
+                    links.add(clean_href)
     
     # Extract from text content as fallback
     if text_content:
         url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
         text_links = re.findall(url_pattern, text_content)
         for link in text_links:
-            if not any(term in link.lower() for term in ['unsubscribe', 'optout', 'track', 'pixel', 'beacon']):
-                links.add(link)
+            if not any(term in link.lower() for term in ['unsubscribe', 'optout']):
+                clean_link = link.split('?')[0] if '?' in link else link
+                links.add(clean_link)
     
-    # Return up to 5 most relevant links
-    return list(links)[:5]
+    return list(links)

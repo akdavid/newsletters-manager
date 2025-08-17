@@ -7,7 +7,7 @@ from ..models.email import Email
 from ..models.newsletter import Newsletter, NewsletterType
 from ..models.summary import Summary, SummaryFormat, SummaryStatus, NewsletterSummaryItem
 from ..utils.exceptions import OpenAIServiceException
-from ..utils.helpers import extract_key_metrics, truncate_text, extract_links_from_email
+from ..utils.helpers import truncate_text
 from ..utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -36,12 +36,18 @@ class AIService:
             if not response:
                 return None
 
-            summary_text = response.strip()
+            # Log raw response for debugging
+            logger.debug(f"Raw AI response for {email.subject}: {response.strip()}")
+            
+            # Parse the structured response
+            summary_text, extracted_link = self._parse_structured_response(response.strip())
             key_points = self._extract_key_points(summary_text)
             
-            # Extract links from email content
-            links = extract_links_from_email(email.content_html, email.content_text)
-            logger.debug(f"Extracted {len(links)} links for email {email.id}: {links}")
+            # Use the link extracted by AI, with fallback to old method if needed
+            links = [extracted_link] if extracted_link else []
+            
+            logger.debug(f"Parsed summary: {summary_text[:100]}...")
+            logger.debug(f"AI extracted link for {email.subject}: {extracted_link}")
             
             return NewsletterSummaryItem(
                 email_id=email.id,
@@ -118,22 +124,28 @@ class AIService:
             NewsletterType.OTHER: "autre"
         }.get(newsletter.newsletter_type, "autre")
 
-        return f"""Résume cette newsletter {newsletter_type_fr} en français de manière concise et professionnelle :
+        return f"""Résume cette newsletter {newsletter_type_fr} en français et extrait le lien principal :
 
 Sujet: {email.subject}
 Expéditeur: {email.get_display_name()}
 
 Instructions:
-- Résumé en 2-3 phrases maximum
-- Mets en avant les points clés les plus importants
+- Si c'est un digest avec plusieurs articles, résume l'article PRINCIPAL mentionné dans le sujet
+- Pour cet article principal : 2-3 phrases de résumé concis
+- CRUCIAL: Cherche dans le contenu et copie EXACTEMENT l'URL de l'article principal (ne modifie jamais l'URL)
+- L'URL doit être extraite directement du contenu HTML/texte, pas inventée ou reconstruite
+- Si tu trouves plusieurs liens, choisis celui qui correspond au titre de l'article principal
 - Garde un ton informatif et professionnel
-- Utilise des puces (•) pour les points principaux si nécessaire
 - Indique le type de contenu (newsletter {newsletter_type_fr})
 
-Contenu à résumer :
+Format de réponse requis:
+RÉSUMÉ: [ton résumé ici]
+LIEN: [URL exacte trouvée dans le contenu, sans modification]
+
+Contenu à analyser :
 {content}
 
-Résumé:"""
+Réponse:"""
 
     def _extract_key_points(self, summary_text: str) -> List[str]:
         key_points = []
@@ -149,6 +161,84 @@ Résumé:"""
             key_points = [sentence.strip() for sentence in sentences if sentence.strip()][:3]
         
         return key_points
+
+    def _parse_structured_response(self, response: str) -> tuple[str, Optional[str]]:
+        """Parse the structured AI response to extract summary and link."""
+        logger.debug(f"Parsing response: {response}")
+        
+        summary_text = ""
+        extracted_link = None
+        
+        lines = response.split('\n')
+        current_section = None
+        
+        for line in lines:
+            line = line.strip()
+            logger.debug(f"Processing line: '{line}'")
+            
+            if line.upper().startswith('RÉSUMÉ:') or line.upper().startswith('RESUME:'):
+                current_section = 'summary'
+                summary_text = line.replace('RÉSUMÉ:', '').replace('RESUME:', '').strip()
+                logger.debug(f"Found summary start: '{summary_text}'")
+            elif line.upper().startswith('LIEN:') or line.upper().startswith('LINK:'):
+                current_section = 'link'
+                link_text = line.replace('LIEN:', '').replace('LINK:', '').strip()
+                logger.debug(f"Found link line: '{link_text}'")
+                
+                # Extract URL from different formats
+                extracted_link = self._extract_url_from_text(link_text)
+                if extracted_link:
+                    logger.debug(f"Extracted link: {extracted_link}")
+                    
+            elif current_section == 'summary' and line:
+                # Continue building summary if we're in summary section
+                summary_text += ' ' + line
+            elif current_section == 'link' and line:
+                # Handle case where link is on next line
+                potential_link = self._extract_url_from_text(line)
+                if potential_link:
+                    extracted_link = potential_link
+                    logger.debug(f"Found link on separate line: {extracted_link}")
+        
+        # Fallback: if no structured format, treat whole response as summary
+        if not summary_text:
+            summary_text = response
+            logger.debug("No structured format found, using whole response as summary")
+            
+            # Try to find any URL in the response
+            extracted_link = self._extract_url_from_text(response)
+            if extracted_link:
+                logger.debug(f"Found URL in unstructured response: {extracted_link}")
+        
+        logger.debug(f"Final parsed - Summary: '{summary_text[:100]}...', Link: {extracted_link}")
+        return summary_text.strip(), extracted_link
+
+    def _extract_url_from_text(self, text: str) -> Optional[str]:
+        """Extract URL from text that may be in different formats."""
+        if not text:
+            return None
+            
+        import re
+        
+        # First check if it's a direct HTTP/HTTPS URL
+        if text.startswith(('http://', 'https://')):
+            return text
+        
+        # Check for Markdown format [text](URL)
+        markdown_pattern = r'\[([^\]]+)\]\(([^)]+)\)'
+        markdown_match = re.search(markdown_pattern, text)
+        if markdown_match:
+            url = markdown_match.group(2)
+            if url.startswith(('http://', 'https://')):
+                return url
+        
+        # Fallback: find any HTTP/HTTPS URL in the text
+        url_pattern = r'https?://[^\s<>"\')\]]+' 
+        url_match = re.search(url_pattern, text)
+        if url_match:
+            return url_match.group(0)
+        
+        return None
 
     def _group_newsletters_by_type(self, newsletters: List[NewsletterSummaryItem]) -> Dict[str, List[NewsletterSummaryItem]]:
         grouped = {}
@@ -327,13 +417,10 @@ Génère uniquement le code HTML complet, sans markdown:"""
                 if newsletter.received_date:
                     date_str = newsletter.received_date.strftime('%d/%m/%Y à %H:%M')
                 
-                # Format links
+                # Format links (only one link now)
                 links_html = ""
-                if newsletter.links:
-                    links_html = '<div class="newsletter-links">'
-                    for i, link in enumerate(newsletter.links[:3], 1):  # Limit to 3 links
-                        links_html += f'<a href="{link}" target="_blank">Lien {i}</a>'
-                    links_html += '</div>'
+                if newsletter.links and newsletter.links[0]:
+                    links_html = f'<div class="newsletter-links"><a href="{newsletter.links[0]}" target="_blank">📖 Lire l\'article</a></div>'
                 else:
                     links_html = '<div class="newsletter-links"><span style="color: #999; font-size: 0.8em;">Aucun lien disponible</span></div>'
                 
@@ -454,3 +541,4 @@ JSON:"""
         except Exception as e:
             logger.error(f"Error classifying email content: {e}")
             return {"is_newsletter": False, "confidence": 0.0, "type": "other", "reasons": []}
+
