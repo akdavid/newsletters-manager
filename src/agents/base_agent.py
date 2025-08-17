@@ -1,10 +1,11 @@
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, List
-from datetime import datetime
-from enum import Enum
-from dataclasses import dataclass
 import asyncio
 import uuid
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
 from loguru import logger
 
 
@@ -35,7 +36,7 @@ class AgentMessage:
         sender: str,
         data: Any,
         recipient: Optional[str] = None,
-        correlation_id: Optional[str] = None
+        correlation_id: Optional[str] = None,
     ) -> "AgentMessage":
         return AgentMessage(
             id=str(uuid.uuid4()),
@@ -44,7 +45,7 @@ class AgentMessage:
             recipient=recipient,
             data=data,
             timestamp=datetime.now(),
-            correlation_id=correlation_id
+            correlation_id=correlation_id,
         )
 
 
@@ -60,9 +61,13 @@ class MessageBroker:
         # Prevent duplicate subscriptions by checking if callback already exists
         if callback not in self._subscribers[message_type]:
             self._subscribers[message_type].append(callback)
-            logger.debug(f"Subscribed to {message_type.value}, total callbacks: {len(self._subscribers[message_type])}")
+            logger.debug(
+                f"Subscribed to {message_type.value}, total callbacks: {len(self._subscribers[message_type])}"
+            )
         else:
-            logger.debug(f"Callback already subscribed to {message_type.value}, skipping duplicate")
+            logger.debug(
+                f"Callback already subscribed to {message_type.value}, skipping duplicate"
+            )
 
     def unsubscribe(self, message_type: MessageType, callback: callable):
         if message_type in self._subscribers:
@@ -86,7 +91,7 @@ class MessageBroker:
 
     async def stop(self):
         self._running = False
-    
+
     def get_subscription_count(self, message_type: MessageType) -> int:
         """Get the number of callbacks subscribed to a message type"""
         return len(self._subscribers.get(message_type, []))
@@ -135,14 +140,14 @@ class BaseAgent(ABC):
         msg_type: MessageType,
         data: Any,
         recipient: Optional[str] = None,
-        correlation_id: Optional[str] = None
+        correlation_id: Optional[str] = None,
     ):
         message = AgentMessage.create(
             msg_type=msg_type,
             sender=self.name,
             data=data,
             recipient=recipient,
-            correlation_id=correlation_id
+            correlation_id=correlation_id,
         )
         await self._broker.publish(message)
 
@@ -157,5 +162,5 @@ class BaseAgent(ABC):
         return {
             "agent": self.name,
             "status": "running" if self._running else "stopped",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }

@@ -1,0 +1,25 @@
+# Development dependencies
+# Install with: pip install -r requirements-dev.txt
+
+# Testing
+pytest>=7.4.4,<8.0.0
+pytest-asyncio>=0.23.2,<1.0.0
+pytest-cov>=4.1.0,<5.0.0
+
+# Code formatting and linting
+black>=23.12.1,<25.0.0
+flake8>=7.0.0,<8.0.0
+isort>=5.13.2,<6.0.0
+mypy>=1.8.0,<2.0.0
+
+# Git hooks
+pre-commit>=3.6.0,<4.0.0
+
+# Documentation
+mkdocs>=1.5.0,<2.0.0
+mkdocs-material>=9.4.0,<10.0.0
+mkdocstrings[python]>=0.24.0,<1.0.0
+
+# Type checking
+types-requests>=2.31.0
+types-python-dateutil>=2.8.19

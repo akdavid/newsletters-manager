@@ -1,10 +1,23 @@
-from sqlalchemy import Column, String, Text, DateTime, Boolean, Float, Integer, JSON, ForeignKey
+from datetime import datetime, timezone
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-from datetime import datetime, timezone
+
 
 def utc_now():
     return datetime.now(timezone.utc)
+
 
 Base = declarative_base()
 
@@ -30,7 +43,9 @@ class EmailModel(Base):
     attachments = Column(JSON, default=list)
     headers = Column(JSON, default=dict)
     raw_size = Column(Integer, default=0)
-    provider_id = Column(String)  # For storing provider-specific IDs (e.g., Graph API ID)
+    provider_id = Column(
+        String
+    )  # For storing provider-specific IDs (e.g., Graph API ID)
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 

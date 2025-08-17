@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
 
 class AccountType(Enum):
@@ -46,28 +46,38 @@ class Email:
     attachments: List[EmailAttachment] = field(default_factory=list)
     headers: Dict[str, str] = field(default_factory=dict)
     raw_size: int = 0
-    provider_id: Optional[str] = None  # For storing provider-specific IDs (e.g., Graph API ID for Outlook)
+    provider_id: Optional[
+        str
+    ] = None  # For storing provider-specific IDs (e.g., Graph API ID for Outlook)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def has_unsubscribe_header(self) -> bool:
-        unsubscribe_headers = ['list-unsubscribe', 'unsubscribe']
-        return any(header.lower() in [h.lower() for h in self.headers.keys()] 
-                  for header in unsubscribe_headers)
+        unsubscribe_headers = ["list-unsubscribe", "unsubscribe"]
+        return any(
+            header.lower() in [h.lower() for h in self.headers.keys()]
+            for header in unsubscribe_headers
+        )
 
     def is_likely_newsletter(self) -> bool:
         newsletter_indicators = [
-            'newsletter', 'unsubscribe', 'noreply', 'no-reply',
-            'digest', 'bulletin', 'update', 'notification'
+            "newsletter",
+            "unsubscribe",
+            "noreply",
+            "no-reply",
+            "digest",
+            "bulletin",
+            "update",
+            "notification",
         ]
-        
+
         sender_lower = self.sender.lower()
         subject_lower = self.subject.lower()
-        
+
         return (
-            any(indicator in sender_lower for indicator in newsletter_indicators) or
-            any(indicator in subject_lower for indicator in newsletter_indicators) or
-            self.has_unsubscribe_header()
+            any(indicator in sender_lower for indicator in newsletter_indicators)
+            or any(indicator in subject_lower for indicator in newsletter_indicators)
+            or self.has_unsubscribe_header()
         )
 
     def get_display_name(self) -> str:
@@ -75,31 +85,32 @@ class Email:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            'id': self.id,
-            'message_id': self.message_id,
-            'subject': self.subject,
-            'sender': self.sender,
-            'sender_name': self.sender_name,
-            'recipient': self.recipient,
-            'content_text': self.content_text,
-            'content_html': self.content_html,
-            'received_date': self.received_date.isoformat(),
-            'account_source': self.account_source.value,
-            'status': self.status.value,
-            'is_newsletter': self.is_newsletter,
-            'is_processed': self.is_processed,
-            'thread_id': self.thread_id,
-            'labels': self.labels,
-            'attachments': [
+            "id": self.id,
+            "message_id": self.message_id,
+            "subject": self.subject,
+            "sender": self.sender,
+            "sender_name": self.sender_name,
+            "recipient": self.recipient,
+            "content_text": self.content_text,
+            "content_html": self.content_html,
+            "received_date": self.received_date.isoformat(),
+            "account_source": self.account_source.value,
+            "status": self.status.value,
+            "is_newsletter": self.is_newsletter,
+            "is_processed": self.is_processed,
+            "thread_id": self.thread_id,
+            "labels": self.labels,
+            "attachments": [
                 {
-                    'filename': att.filename,
-                    'content_type': att.content_type,
-                    'size': att.size,
-                    'attachment_id': att.attachment_id
-                } for att in self.attachments
+                    "filename": att.filename,
+                    "content_type": att.content_type,
+                    "size": att.size,
+                    "attachment_id": att.attachment_id,
+                }
+                for att in self.attachments
             ],
-            'headers': self.headers,
-            'raw_size': self.raw_size,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
+            "headers": self.headers,
+            "raw_size": self.raw_size,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
         }

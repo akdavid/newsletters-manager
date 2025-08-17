@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, List, Dict, Any
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
 
 class NewsletterType(Enum):
@@ -54,20 +54,20 @@ class Newsletter:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            'email_id': self.email_id,
-            'newsletter_type': self.newsletter_type.value,
-            'confidence_score': self.confidence_score,
-            'detection_method': self.detection_method.value,
-            'sender_domain': self.sender_domain,
-            'sender_name': self.sender_name,
-            'metadata': {
-                'sender_frequency': self.metadata.sender_frequency,
-                'has_unsubscribe_link': self.metadata.has_unsubscribe_link,
-                'html_to_text_ratio': self.metadata.html_to_text_ratio,
-                'contains_tracking_pixels': self.metadata.contains_tracking_pixels,
-                'contains_promotional_keywords': self.metadata.contains_promotional_keywords
+            "email_id": self.email_id,
+            "newsletter_type": self.newsletter_type.value,
+            "confidence_score": self.confidence_score,
+            "detection_method": self.detection_method.value,
+            "sender_domain": self.sender_domain,
+            "sender_name": self.sender_name,
+            "metadata": {
+                "sender_frequency": self.metadata.sender_frequency,
+                "has_unsubscribe_link": self.metadata.has_unsubscribe_link,
+                "html_to_text_ratio": self.metadata.html_to_text_ratio,
+                "contains_tracking_pixels": self.metadata.contains_tracking_pixels,
+                "contains_promotional_keywords": self.metadata.contains_promotional_keywords,
             },
-            'classification_notes': self.classification_notes,
-            'created_at': self.created_at.isoformat(),
-            'updated_at': self.updated_at.isoformat()
+            "classification_notes": self.classification_notes,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
         }

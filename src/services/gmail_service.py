@@ -1,34 +1,38 @@
-import os
 import base64
+import os
 import pickle
-from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
-from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from typing import Any, Dict, List, Optional
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.exceptions import RefreshError
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-from ..models.email import Email, AccountType, EmailStatus, EmailAttachment
+from ..models.email import AccountType, Email, EmailAttachment, EmailStatus
+from ..utils.config import get_settings
 from ..utils.exceptions import GmailServiceException
 from ..utils.helpers import (
-    extract_email_address, extract_sender_name, generate_email_id,
-    parse_email_date, html_to_text, extract_text_from_html
+    extract_email_address,
+    extract_sender_name,
+    extract_text_from_html,
+    generate_email_id,
+    html_to_text,
+    parse_email_date,
 )
 from ..utils.logger import get_logger
-from ..utils.config import get_settings
 
 logger = get_logger(__name__)
 
 
 class GmailService:
     SCOPES = [
-        'https://www.googleapis.com/auth/gmail.readonly',
-        'https://www.googleapis.com/auth/gmail.modify',
-        'https://www.googleapis.com/auth/gmail.send'
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.send",
     ]
 
     def __init__(self, credentials_path: str, account_type: AccountType):
@@ -42,24 +46,28 @@ class GmailService:
     async def authenticate(self):
         try:
             creds = None
-            token_path = self.credentials_path.replace('.json', '_token.pickle')
-            
+            token_path = self.credentials_path.replace(".json", "_token.pickle")
+
             if os.path.exists(token_path):
-                with open(token_path, 'rb') as token:
+                with open(token_path, "rb") as token:
                     creds = pickle.load(token)
-            
+
             if not creds or not creds.valid:
                 # Try refreshing existing credentials if possible
                 if creds and creds.expired and creds.refresh_token:
                     try:
                         creds.refresh(Request())
                     except RefreshError as refresh_error:
-                        logger.warning(f"Refresh token invalid or revoked for {self.account_type.value}: {refresh_error}. Re-authenticating via browser...")
+                        logger.warning(
+                            f"Refresh token invalid or revoked for {self.account_type.value}: {refresh_error}. Re-authenticating via browser..."
+                        )
                         creds = None  # Force full re-auth below
                     except Exception as refresh_unexpected:
-                        logger.warning(f"Unexpected error during token refresh for {self.account_type.value}: {refresh_unexpected}. Re-authenticating via browser...")
+                        logger.warning(
+                            f"Unexpected error during token refresh for {self.account_type.value}: {refresh_unexpected}. Re-authenticating via browser..."
+                        )
                         creds = None
-                
+
                 # Perform full OAuth flow if no valid/refreshable creds
                 if not creds or not creds.valid:
                     # Prefer InstalledAppFlow with local server (avoids deprecated OOB flow)
@@ -67,39 +75,46 @@ class GmailService:
                         self.credentials_path, self.SCOPES
                     )
                     # Opens a browser and handles redirect locally
-                    creds = flow.run_local_server(port=0, access_type='offline', prompt='consent')
-                
-                with open(token_path, 'wb') as token:
+                    creds = flow.run_local_server(
+                        port=0, access_type="offline", prompt="consent"
+                    )
+
+                with open(token_path, "wb") as token:
                     pickle.dump(creds, token)
-            
+
             self.credentials = creds
-            self.service = build('gmail', 'v1', credentials=creds)
-            
+            self.service = build("gmail", "v1", credentials=creds)
+
             # AI service is handled by NewsletterDetectorAgent to avoid duplication
-            
+
             logger.info(f"Gmail service authenticated for {self.account_type.value}")
-            
+
         except Exception as e:
-            logger.error(f"Gmail authentication failed for {self.account_type.value}: {e}")
+            logger.error(
+                f"Gmail authentication failed for {self.account_type.value}: {e}"
+            )
             raise GmailServiceException(f"Authentication failed: {e}")
 
     async def get_unread_messages(self, max_results: int = 100) -> List[Dict[str, Any]]:
         try:
             if not self.service:
                 await self.authenticate()
-            
+
             # Use INBOX + UNREAD labels to match Gmail web interface behavior
             # This excludes spam, promotions, and other non-inbox folders
-            results = self.service.users().messages().list(
-                userId='me',
-                labelIds=['INBOX', 'UNREAD'],
-                maxResults=max_results
-            ).execute()
-            
-            messages = results.get('messages', [])
-            logger.info(f"Found {len(messages)} unread INBOX messages for {self.account_type.value}")
+            results = (
+                self.service.users()
+                .messages()
+                .list(userId="me", labelIds=["INBOX", "UNREAD"], maxResults=max_results)
+                .execute()
+            )
+
+            messages = results.get("messages", [])
+            logger.info(
+                f"Found {len(messages)} unread INBOX messages for {self.account_type.value}"
+            )
             return messages
-            
+
         except HttpError as e:
             logger.error(f"Error getting unread messages: {e}")
             raise GmailServiceException(f"Failed to get unread messages: {e}")
@@ -108,57 +123,64 @@ class GmailService:
         try:
             if not self.service:
                 await self.authenticate()
-            
-            message = self.service.users().messages().get(
-                userId='me',
-                id=message_id,
-                format='full'
-            ).execute()
-            
+
+            message = (
+                self.service.users()
+                .messages()
+                .get(userId="me", id=message_id, format="full")
+                .execute()
+            )
+
             return await self._parse_message(message)
-            
+
         except HttpError as e:
             logger.error(f"Error getting message details for {message_id}: {e}")
             return None
 
     async def _parse_message(self, message: Dict[str, Any]) -> Email:
-        payload = message['payload']
-        headers = {h['name'].lower(): h['value'] for h in payload.get('headers', [])}
-        
-        subject = headers.get('subject', 'No Subject')
-        sender = headers.get('from', '')
-        recipient = headers.get('to', '')
-        date_str = headers.get('date', '')
+        payload = message["payload"]
+        headers = {h["name"].lower(): h["value"] for h in payload.get("headers", [])}
+
+        subject = headers.get("subject", "No Subject")
+        sender = headers.get("from", "")
+        recipient = headers.get("to", "")
+        date_str = headers.get("date", "")
         # Gmail's internal message ID (used for API operations)
-        gmail_message_id = message['id']
+        gmail_message_id = message["id"]
         # Email header message-id (for reference)
-        header_message_id = headers.get('message-id', gmail_message_id)
-        thread_id = message.get('threadId')
-        
+        header_message_id = headers.get("message-id", gmail_message_id)
+        thread_id = message.get("threadId")
+
         received_date = parse_email_date(date_str) or datetime.now(timezone.utc)
         sender_email = extract_email_address(sender)
         sender_name = extract_sender_name(sender)
-        
+
         content_text = ""
         content_html = ""
         attachments = []
-        
-        if 'parts' in payload:
-            content_text, content_html, attachments = self._extract_content_from_parts(payload['parts'])
+
+        if "parts" in payload:
+            content_text, content_html, attachments = self._extract_content_from_parts(
+                payload["parts"]
+            )
         else:
-            if payload.get('mimeType') == 'text/plain':
-                content_text = self._decode_body(payload.get('body', {}))
-            elif payload.get('mimeType') == 'text/html':
-                content_html = self._decode_body(payload.get('body', {}))
+            if payload.get("mimeType") == "text/plain":
+                content_text = self._decode_body(payload.get("body", {}))
+            elif payload.get("mimeType") == "text/html":
+                content_html = self._decode_body(payload.get("body", {}))
                 content_text = html_to_text(content_html)
-        
+
         if not content_text and content_html:
             content_text = extract_text_from_html(content_html)
-        
-        labels = [label for label in message.get('labelIds', []) if not label.startswith('Label_')]
-        
+
+        labels = [
+            label
+            for label in message.get("labelIds", [])
+            if not label.startswith("Label_")
+        ]
+
         email_id = generate_email_id(gmail_message_id, self.account_type.value)
-        
+
         email = Email(
             id=email_id,
             message_id=gmail_message_id,
@@ -174,14 +196,18 @@ class GmailService:
             thread_id=thread_id,
             labels=labels,
             attachments=attachments,
-            headers={**headers, 'gmail-message-id': gmail_message_id, 'header-message-id': header_message_id},
-            raw_size=int(message.get('sizeEstimate', 0))
+            headers={
+                **headers,
+                "gmail-message-id": gmail_message_id,
+                "header-message-id": header_message_id,
+            },
+            raw_size=int(message.get("sizeEstimate", 0)),
         )
-        
+
         # Newsletter detection will be handled by NewsletterDetectorAgent
         # This keeps the architecture clean and avoids duplication
         email.is_newsletter = False  # Will be set by newsletter detector
-        
+
         return email
 
     def _fallback_newsletter_detection(self, email: Email) -> bool:
@@ -195,36 +221,38 @@ class GmailService:
         content_text = ""
         content_html = ""
         attachments = []
-        
+
         for part in parts:
-            mime_type = part.get('mimeType', '')
-            
-            if mime_type == 'text/plain':
-                content_text += self._decode_body(part.get('body', {}))
-            elif mime_type == 'text/html':
-                content_html += self._decode_body(part.get('body', {}))
-            elif 'parts' in part:
-                sub_text, sub_html, sub_attachments = self._extract_content_from_parts(part['parts'])
+            mime_type = part.get("mimeType", "")
+
+            if mime_type == "text/plain":
+                content_text += self._decode_body(part.get("body", {}))
+            elif mime_type == "text/html":
+                content_html += self._decode_body(part.get("body", {}))
+            elif "parts" in part:
+                sub_text, sub_html, sub_attachments = self._extract_content_from_parts(
+                    part["parts"]
+                )
                 content_text += sub_text
                 content_html += sub_html
                 attachments.extend(sub_attachments)
-            elif part.get('filename'):
+            elif part.get("filename"):
                 attachment = EmailAttachment(
-                    filename=part['filename'],
+                    filename=part["filename"],
                     content_type=mime_type,
-                    size=int(part.get('body', {}).get('size', 0)),
-                    attachment_id=part.get('body', {}).get('attachmentId', '')
+                    size=int(part.get("body", {}).get("size", 0)),
+                    attachment_id=part.get("body", {}).get("attachmentId", ""),
                 )
                 attachments.append(attachment)
-        
+
         return content_text, content_html, attachments
 
     def _decode_body(self, body: Dict[str, Any]) -> str:
         try:
-            data = body.get('data', '')
+            data = body.get("data", "")
             if data:
-                decoded = base64.urlsafe_b64decode(data + '===')
-                return decoded.decode('utf-8', errors='ignore')
+                decoded = base64.urlsafe_b64decode(data + "===")
+                return decoded.decode("utf-8", errors="ignore")
         except Exception as e:
             logger.warning(f"Failed to decode email body: {e}")
         return ""
@@ -233,37 +261,41 @@ class GmailService:
         try:
             if not self.service:
                 await self.authenticate()
-            
+
             # Check if message exists first
             try:
                 self.service.users().messages().get(
-                    userId='me',
-                    id=message_id,
-                    format='minimal'
+                    userId="me", id=message_id, format="minimal"
                 ).execute()
             except HttpError as e:
                 if e.resp.status == 404:
-                    logger.warning(f"Message {message_id} not found, may have been deleted")
+                    logger.warning(
+                        f"Message {message_id} not found, may have been deleted"
+                    )
                     return False
                 raise
-            
+
             # Mark as read by removing UNREAD label
             self.service.users().messages().modify(
-                userId='me',
-                id=message_id,
-                body={'removeLabelIds': ['UNREAD']}
+                userId="me", id=message_id, body={"removeLabelIds": ["UNREAD"]}
             ).execute()
-            
+
             logger.debug(f"Successfully marked message {message_id} as read")
             return True
-            
+
         except HttpError as e:
             if e.resp.status == 400:
-                logger.warning(f"Bad request when marking message {message_id} as read - may already be read: {e}")
+                logger.warning(
+                    f"Bad request when marking message {message_id} as read - may already be read: {e}"
+                )
             elif e.resp.status == 403:
-                logger.error(f"Insufficient permissions to mark message {message_id} as read: {e}")
+                logger.error(
+                    f"Insufficient permissions to mark message {message_id} as read: {e}"
+                )
             elif e.resp.status == 404:
-                logger.warning(f"Message {message_id} not found when marking as read: {e}")
+                logger.warning(
+                    f"Message {message_id} not found when marking as read: {e}"
+                )
             else:
                 logger.error(f"HTTP error marking message {message_id} as read: {e}")
             return False
@@ -271,28 +303,29 @@ class GmailService:
             logger.error(f"Unexpected error marking message {message_id} as read: {e}")
             return False
 
-    async def send_email(self, to: str, subject: str, body: str, is_html: bool = False) -> bool:
+    async def send_email(
+        self, to: str, subject: str, body: str, is_html: bool = False
+    ) -> bool:
         try:
             if not self.service:
                 await self.authenticate()
-            
+
             message = MIMEMultipart() if is_html else MIMEText(body)
-            message['to'] = to
-            message['subject'] = subject
-            
+            message["to"] = to
+            message["subject"] = subject
+
             if is_html:
-                message.attach(MIMEText(body, 'html'))
-            
+                message.attach(MIMEText(body, "html"))
+
             raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-            
+
             self.service.users().messages().send(
-                userId='me',
-                body={'raw': raw_message}
+                userId="me", body={"raw": raw_message}
             ).execute()
-            
+
             logger.info(f"Email sent successfully to {to}")
             return True
-            
+
         except HttpError as e:
             logger.error(f"Error sending email: {e}")
             return False
@@ -301,10 +334,10 @@ class GmailService:
         try:
             if not self.service:
                 await self.authenticate()
-            
-            profile = self.service.users().getProfile(userId='me').execute()
-            return profile.get('emailAddress')
-            
+
+            profile = self.service.users().getProfile(userId="me").execute()
+            return profile.get("emailAddress")
+
         except HttpError as e:
             logger.error(f"Error getting user email: {e}")
             return None

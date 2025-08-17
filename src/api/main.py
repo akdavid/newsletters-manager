@@ -1,9 +1,10 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from contextlib import asynccontextmanager
+from typing import Any, Dict, List
+
+import uvicorn
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
-from contextlib import asynccontextmanager
-from typing import Dict, Any, List
-import uvicorn
 
 from ..agents.orchestrator import OrchestratorAgent
 from ..utils.config import get_settings
@@ -17,10 +18,10 @@ orchestrator = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global orchestrator
-    
+
     settings = get_settings()
     orchestrator = OrchestratorAgent({})
-    
+
     try:
         await orchestrator.start()
         logger.info("Newsletter Manager API started")
@@ -35,7 +36,7 @@ app = FastAPI(
     title="Newsletter Manager API",
     description="Multi-agent newsletter processing and summarization system",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -86,7 +87,7 @@ async def get_health():
     try:
         if not orchestrator:
             raise HTTPException(status_code=503, detail="Orchestrator not initialized")
-        
+
         health_info = await orchestrator.get_system_health()
         return health_info
     except Exception as e:
@@ -99,9 +100,12 @@ async def collect_emails(background_tasks: BackgroundTasks):
     try:
         if not orchestrator:
             raise HTTPException(status_code=503, detail="Orchestrator not initialized")
-        
+
         background_tasks.add_task(orchestrator.collect_emails_only)
-        return {"status": "started", "message": "Email collection started in background"}
+        return {
+            "status": "started",
+            "message": "Email collection started in background",
+        }
     except Exception as e:
         logger.error(f"Email collection failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -112,9 +116,12 @@ async def detect_newsletters(background_tasks: BackgroundTasks):
     try:
         if not orchestrator:
             raise HTTPException(status_code=503, detail="Orchestrator not initialized")
-        
+
         background_tasks.add_task(orchestrator.detect_newsletters_only)
-        return {"status": "started", "message": "Newsletter detection started in background"}
+        return {
+            "status": "started",
+            "message": "Newsletter detection started in background",
+        }
     except Exception as e:
         logger.error(f"Newsletter detection failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -125,7 +132,7 @@ async def generate_summary(background_tasks: BackgroundTasks):
     try:
         if not orchestrator:
             raise HTTPException(status_code=503, detail="Orchestrator not initialized")
-        
+
         result = await orchestrator.generate_summary_only()
         return result
     except Exception as e:
@@ -138,7 +145,7 @@ async def run_full_pipeline(background_tasks: BackgroundTasks):
     try:
         if not orchestrator:
             raise HTTPException(status_code=503, detail="Orchestrator not initialized")
-        
+
         background_tasks.add_task(orchestrator.run_full_pipeline)
         return {"status": "started", "message": "Full pipeline started in background"}
     except Exception as e:
@@ -151,7 +158,7 @@ async def trigger_manual_summary():
     try:
         if not orchestrator:
             raise HTTPException(status_code=503, detail="Orchestrator not initialized")
-        
+
         result = await orchestrator.trigger_manual_summary()
         return result
     except Exception as e:
@@ -164,13 +171,13 @@ async def get_status():
     try:
         if not orchestrator:
             return {"status": "not_running", "message": "Orchestrator not initialized"}
-        
+
         return {
             "status": "running",
             "agents": {
-                name: agent.is_running if hasattr(agent, 'is_running') else True
+                name: agent.is_running if hasattr(agent, "is_running") else True
                 for name, agent in orchestrator.agents.items()
-            }
+            },
         }
     except Exception as e:
         logger.error(f"Status check failed: {e}")
@@ -184,5 +191,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         reload=False,
-        log_level=settings.log_level.lower()
+        log_level=settings.log_level.lower(),
     )

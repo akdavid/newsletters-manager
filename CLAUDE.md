@@ -329,13 +329,13 @@ Use structured prompts for OpenAI:
 
 ```python
 SUMMARY_PROMPT = """
-Résume cette newsletter en français de manière concise :
-- 2-3 phrases maximum
-- Mets en avant les points clés
-- Garde un ton informatif
-- Indique le type de newsletter (tech, business, etc.)
+Summarize this newsletter concisely in French:
+- Maximum 2-3 sentences
+- Highlight key points
+- Keep an informative tone
+- Indicate newsletter type (tech, business, etc.)
 
-Contenu :
+Content:
 {content}
 """
 ```

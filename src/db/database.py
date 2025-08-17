@@ -1,14 +1,15 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import StaticPool
-from contextlib import contextmanager
-from typing import Generator
 import os
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Generator
 
-from .models import Base
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+
 from ..utils.config import get_settings
 from ..utils.logger import get_logger
+from .models import Base
 
 logger = get_logger(__name__)
 
@@ -17,22 +18,24 @@ class DatabaseManager:
     def __init__(self, database_url: str = None):
         self.settings = get_settings()
         self.database_url = database_url or self.settings.database_url
-        
+
         if self.database_url.startswith("sqlite"):
             db_path = self.database_url.replace("sqlite:///", "")
             db_dir = Path(db_path).parent
             db_dir.mkdir(parents=True, exist_ok=True)
-            
+
             self.engine = create_engine(
                 self.database_url,
                 connect_args={"check_same_thread": False},
                 poolclass=StaticPool,
-                echo=False
+                echo=False,
             )
         else:
             self.engine = create_engine(self.database_url)
-        
-        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+
+        self.SessionLocal = sessionmaker(
+            autocommit=False, autoflush=False, bind=self.engine
+        )
 
     def create_tables(self):
         logger.info("Creating database tables...")
