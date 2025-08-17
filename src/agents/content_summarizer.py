@@ -209,7 +209,7 @@ class ContentSummarizerAgent(BaseAgent):
                     newsletters_count=summary.newsletters_count,
                     total_emails_processed=summary.total_emails_processed,
                     generation_date=summary.generation_date,
-                    newsletters_summaries=[item.__dict__ for item in summary.newsletters_summaries],
+                    newsletters_summaries=[item.to_dict() for item in summary.newsletters_summaries],
                     metadata=summary.metadata,
                     error_message=summary.error_message,
                     processing_duration=summary.processing_duration,
@@ -332,7 +332,7 @@ class ContentSummarizerAgent(BaseAgent):
         
         newsletter_summaries = []
         for item_data in model.newsletters_summaries or []:
-            item = NewsletterSummaryItem(**item_data)
+            item = NewsletterSummaryItem.from_dict(item_data)
             newsletter_summaries.append(item)
         
         return Summary(
